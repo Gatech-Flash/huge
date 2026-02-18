@@ -39,13 +39,18 @@ huge.npn = function(x, npn.func = "shrinkage", npn.thresh = NULL, verbose = TRUE
   d = ncol(x)
   x.col = colnames(x)
   x.row = rownames(x)
+  normalize.columns = function(z){
+    z.sd = apply(z, 2, sd, na.rm = TRUE)
+    z.sd[!is.finite(z.sd) | z.sd == 0] = 1
+    sweep(z, 2, z.sd, "/")
+  }
 
     # Shrinkaage transformation
   if(npn.func == "shrinkage"){
     if(verbose) cat("Conducting the nonparanormal (npn) transformation via shrunkun ECDF....")
 
     x = qnorm(apply(x,2,rank,na.last=na.last)/(n+1))
-    x = x/sd(x[,1], na.rm = TRUE)
+    x = normalize.columns(x)
 
     if(verbose) cat("done.\n")
     rm(n,d,verbose)
@@ -60,7 +65,7 @@ huge.npn = function(x, npn.func = "shrinkage", npn.thresh = NULL, verbose = TRUE
     if(is.null(npn.thresh)) npn.thresh = 1/(4*(n^0.25)*sqrt(pi*log(n)))
 
     x = qnorm(pmin(pmax(apply(x,2,rank,na.last=na.last)/n, npn.thresh), 1-npn.thresh))
-      x = x/sd(x[,1], na.rm = TRUE)
+      x = normalize.columns(x)
 
       if(verbose) cat("done.\n")
       rm(n,d,npn.thresh,verbose)

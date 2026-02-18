@@ -1,6 +1,11 @@
 ^CRAN-RELEASE$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^\.gitignore$
+^src/\.gitignore$
+^vignettes/\.gitignore$
+^\.Rlib($|/)
+^.*\.Rcheck$
 cran-comments.md
 benchmark/*
 revdep/*
