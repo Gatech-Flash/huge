@@ -31,6 +31,12 @@ cd python-package
 pip install -e .
 ```
 
+Quick verification:
+
+```bash
+python -c "import pyhuge; print(pyhuge.test())"
+```
+
 Install optional visualization dependencies:
 
 ```bash

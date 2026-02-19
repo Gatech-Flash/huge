@@ -66,6 +66,48 @@ install.packages("huge")
 library(huge)
 ```
 
+## Python Package (`pyhuge`)
+
+This repository now includes a Python wrapper package under `python-package/`.
+It exposes `huge` functionality to Python via `rpy2` while keeping the R/C++
+backend unchanged.
+
+### Python package location
+
+- `python-package/README.md`
+- `python-package/docs/`
+- `python-package/examples/`
+
+### Python installation
+
+```bash
+git clone https://github.com/HMJiangGatech/huge.git
+cd huge/python-package
+pip install -e .
+python -c "import pyhuge; print(pyhuge.test())"
+```
+
+Optional extras:
+
+```bash
+pip install -e ".[viz]"      # matplotlib + networkx
+pip install -e ".[dev]"      # tests + docs + release tooling
+```
+
+### Python documentation website and CI
+
+- Docs site: <https://hmjianggatech.github.io/huge/>
+- Python tests workflow: `.github/workflows/python-wrapper-tests.yml`
+- Python docs workflow: `.github/workflows/python-package-docs.yml`
+- Python release workflow: `.github/workflows/python-package-release.yml`
+
+### Python API coverage (summary)
+
+- Estimation: `huge`, `huge_mb`, `huge_glasso`, `huge_ct`, `huge_tiger`
+- Selection/preprocessing: `huge_select`, `huge_npn`
+- Simulation/inference/ROC: `huge_generator`, `huge_inference`, `huge_roc`
+- Utility/plots: `huge_summary`, `huge_select_summary`, `huge_plot_*`, `huge_plot_network`
+
 ## Examples
 
 ```R

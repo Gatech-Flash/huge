@@ -42,3 +42,12 @@ Workflow file:
 - `.github/workflows/python-package-release.yml`
 
 It builds wheel/sdist and publishes using PyPI trusted publishing.
+
+## 5. Documentation website
+
+Docs build/deploy workflow:
+
+- `.github/workflows/python-package-docs.yml`
+- local docs build script: `scripts/build_docs.sh`
+
+On push to `master`, it builds `python-package/mkdocs.yml` and deploys to GitHub Pages.

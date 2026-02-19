@@ -1,5 +1,8 @@
 """Python wrapper for the R package huge."""
 
+import importlib.util as _importlib_util
+
+from . import core as _core
 from .core import (
     HugeGeneratorResult,
     HugeInferenceResult,
@@ -52,6 +55,42 @@ __all__ = [
     "huge_plot_roc",
     "huge_plot_graph_matrix",
     "huge_plot_network",
+    "test",
 ]
 
 __version__ = "0.1.0"
+
+
+def test(require_runtime: bool = False) -> dict:
+    """Probe runtime readiness for pyhuge.
+
+    Returns a status dict with keys:
+    - ``python_import``: module import status
+    - ``rpy2``: whether ``rpy2`` is discoverable
+    - ``runtime``: whether R bridge and R package ``huge`` are usable
+
+    If ``require_runtime=True``, raises ``PyHugeError`` when runtime is not ready.
+    """
+
+    status = {
+        "python_import": True,
+        "rpy2": _importlib_util.find_spec("rpy2") is not None,
+        "runtime": False,
+    }
+
+    if not status["rpy2"]:
+        if require_runtime:
+            raise PyHugeError("rpy2 is required for pyhuge runtime. Install with `pip install rpy2`.")
+        return status
+
+    try:
+        _core._r_env()
+        status["runtime"] = True
+    except Exception as exc:  # pragma: no cover - runtime depends on local env
+        if require_runtime:
+            raise PyHugeError(
+                "R runtime for pyhuge is unavailable. "
+                "Check R installation, architecture match, and R package `huge` visibility."
+            ) from exc
+
+    return status

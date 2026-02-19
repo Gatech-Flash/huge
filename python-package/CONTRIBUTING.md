@@ -27,6 +27,12 @@ pytest tests/test_e2e_optional.py -rA
 mkdocs serve
 ```
 
+## Validate docs build (CI-equivalent)
+
+```bash
+mkdocs build --strict
+```
+
 ## Build wheel/sdist for release
 
 ```bash
@@ -39,6 +45,12 @@ bash scripts/build_dist.sh
 python scripts/bump_version.py 0.2.0
 bash scripts/release.sh 0.2.0
 ```
+
+## CI workflows
+
+- Tests: `.github/workflows/python-wrapper-tests.yml`
+- Docs website: `.github/workflows/python-package-docs.yml`
+- Package release: `.github/workflows/python-package-release.yml`
 
 ## Code principles
 

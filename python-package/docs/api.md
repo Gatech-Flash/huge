@@ -39,6 +39,25 @@ Main wrapper over R `huge()`.
 - Optional fields: `df`, `loglik`, `icov`, `cov`, `idx_mat`.
 - `raw`: original R object.
 
+## `pyhuge.test`
+
+```python
+test(require_runtime=False) -> dict
+```
+
+Environment probe helper (similar to `pycasso.test()` style):
+
+- checks whether `rpy2` is importable;
+- checks whether runtime bridge (`R` + R package `huge`) is ready.
+
+Returns a status dictionary:
+
+- `python_import`: always `True` once module is imported;
+- `rpy2`: whether `rpy2` can be resolved;
+- `runtime`: whether `_r_env()` successfully initializes.
+
+If `require_runtime=True`, it raises `PyHugeError` when runtime requirements are not met.
+
 ## Method-specific wrappers
 
 These are convenience wrappers around `huge(...)` with fixed `method`:

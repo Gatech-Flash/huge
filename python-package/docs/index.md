@@ -3,6 +3,16 @@
 `pyhuge` provides Python access to the `huge` R package for high-dimensional
 undirected graph estimation.
 
+## Quick links
+
+- Installation: `installation.md`
+- API: `api.md`
+- Tutorials: `tutorials.md`
+- Performance: `performance.md`
+- Troubleshooting: `troubleshooting.md`
+- Release: `release.md`
+- Documentation website deployment: `.github/workflows/python-package-docs.yml`
+
 ## What you get
 
 - Python-callable APIs:
@@ -22,10 +32,13 @@ undirected graph estimation.
   - `huge_plot_roc(...)`
   - `huge_plot_graph_matrix(...)`
   - `huge_plot_network(...)`
+  - `test(...)`
 - Typed return objects:
   - `HugeResult`
-  - `HugeSelectResult`
+- `HugeSelectResult`
 - Sparse outputs converted to SciPy sparse matrices where appropriate.
+- A runtime probe helper:
+  - `pyhuge.test(require_runtime=False)`
 
 ## Current architecture
 

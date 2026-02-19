@@ -1,128 +1,209 @@
-# pyhuge
+# pyhuge Python Package
 
-`pyhuge` is a Python wrapper for the
-[`huge`](https://cran.r-project.org/package=huge) R package.
+[![Python wrapper tests](https://github.com/HMJiangGatech/huge/actions/workflows/python-wrapper-tests.yml/badge.svg)](https://github.com/HMJiangGatech/huge/actions/workflows/python-wrapper-tests.yml)
+[![Python docs](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-docs.yml/badge.svg)](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-docs.yml)
+[![Python package release](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-release.yml/badge.svg)](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-release.yml)
 
-The current release is a bridge wrapper:
-- it keeps the existing R implementation unchanged;
-- it calls `huge` from Python through `rpy2`;
-- it converts output graph objects to `scipy.sparse` / `numpy`.
+`pyhuge` is the Python wrapper for the
+[`huge`](https://cran.r-project.org/package=huge) package:
+High-dimensional Undirected Graph Estimation.
 
-## Status
+## Table of contents
 
-Implemented APIs:
-- `pyhuge.huge`
-- `pyhuge.huge_mb`
-- `pyhuge.huge_glasso`
-- `pyhuge.huge_ct`
-- `pyhuge.huge_tiger`
-- `pyhuge.huge_select`
-- `pyhuge.huge_npn`
-- `pyhuge.huge_generator`
-- `pyhuge.huge_inference`
-- `pyhuge.huge_roc`
-- `pyhuge.huge_summary`
-- `pyhuge.huge_select_summary`
-- `pyhuge.huge_plot_sparsity`
-- `pyhuge.huge_plot_roc`
-- `pyhuge.huge_plot_graph_matrix`
-- `pyhuge.huge_plot_network`
+- [Background](#background)
+- [Directory structure](#directory-structure)
+- [What this package provides](#what-this-package-provides)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Documentation and tutorials](#documentation-and-tutorials)
+- [Performance notes](#performance-notes)
+- [Implemented APIs](#implemented-apis)
+- [For developer](#for-developer)
+- [Citation](#citation)
+- [References](#references)
 
-Documentation includes:
-- installation and environment requirements;
-- quick-start examples;
-- API contract and return objects;
-- architecture and known limitations;
-- troubleshooting guide.
+## Background
 
-## Installation
+`huge` is widely used for sparse undirected graphical model estimation in high dimensions.
+`pyhuge` keeps the original R/C++ backend and exposes a Python API via `rpy2` so Python users can:
 
-Prerequisites:
+- call the same core methods (`mb`, `glasso`, `ct`, `tiger`);
+- run model selection (`ric`, `stars`, `ebic`);
+- access simulation, ROC, and inference helpers;
+- work with `numpy` and `scipy.sparse` objects directly.
+
+## Directory structure
+
+The Python package directory is organized as:
+
+- `pyhuge/`: Python wrapper source code
+- `tests/`: unit/runtime/e2e tests
+- `examples/`: runnable scripts
+- `docs/`: MkDocs documentation pages
+- `scripts/`: release and docs build scripts
+
+## What this package provides
+
+- Thin and stable bridge to mature `huge` backend.
+- Argument validation with explicit `PyHugeError` messages.
+- Typed result objects.
+- Plot helpers including node-edge network visualization (`huge_plot_network`).
+- Tests, documentation website workflow, and release automation scripts.
+
+## Requirements
+
 - Python `>=3.9`
 - R installed and available in PATH
 - R package `huge` installed (with `Rcpp`, `RcppEigen`, `igraph`, etc.)
-- Python and R should use the same architecture (both arm64 or both x86_64)
+- Python and R architecture must match (both `arm64` or both `x86_64`)
 
-Install:
+## Installation
+
+Install from source:
 
 ```bash
-cd python-package
+git clone https://github.com/HMJiangGatech/huge.git
+cd huge/python-package
 pip install -e .
 ```
 
-Optional visualization extras:
+Install directly from GitHub:
 
 ```bash
-cd python-package
-pip install -e ".[viz]"
+pip install "git+https://github.com/HMJiangGatech/huge.git#subdirectory=python-package"
 ```
 
-## Quick start
+Optional extras:
+
+```bash
+pip install -e ".[viz]"      # matplotlib + networkx
+pip install -e ".[release]"  # build + twine
+pip install -e ".[dev]"      # test + docs + release deps
+```
+
+Runtime check:
+
+```bash
+python -c "import pyhuge; print(pyhuge.test())"
+```
+
+If `runtime=False`, verify `R_LIBS_USER`, architecture match, and `huge` visibility in R.
+
+## Usage
 
 ```python
 import numpy as np
-from pyhuge import huge, huge_select, huge_npn
+from pyhuge import huge, huge_npn, huge_select
 
 rng = np.random.default_rng(1)
-x = rng.normal(size=(100, 20))
-
-# optional nonparanormal transform
+x = rng.normal(size=(120, 30))
 x_npn = huge_npn(x, npn_func="shrinkage", verbose=False)
 
-# graph path estimation
-fit = huge(x_npn, method="mb", nlambda=6, verbose=False)
-print(fit.method, fit.lambda_path.shape, len(fit.path))
-
-# model selection
+fit = huge(x_npn, method="mb", nlambda=8, verbose=False)
 sel = huge_select(fit, criterion="ric", verbose=False)
-print(sel.criterion, sel.opt_lambda, sel.opt_sparsity)
+print(fit.method, len(fit.path), sel.opt_lambda, sel.opt_sparsity)
 ```
 
-## Full docs
+Network visualization:
 
-See the local docs folder:
-- `docs/index.md`
-- `docs/installation.md`
-- `docs/quickstart.md`
-- `docs/api.md`
-- `docs/design.md`
-- `docs/troubleshooting.md`
+```python
+import matplotlib.pyplot as plt
+from pyhuge import huge_plot_network
 
-Example scripts:
-- `examples/run_huge_mb.py`
-- `examples/run_huge_glasso.py`
-- `examples/run_method_wrappers.py`
-- `examples/run_sim_inference_roc.py`
-- `examples/run_summary_and_plot.py`
-- `examples/run_network_plot.py`
+fig, ax = plt.subplots(figsize=(5, 5))
+huge_plot_network(fit, index=-1, ax=ax, layout="spring")
+plt.show()
+```
 
-You can also build docs with MkDocs:
+## Documentation and tutorials
+
+- Website: <https://hmjianggatech.github.io/huge/>
+- Docs source: `python-package/docs`
+- Tutorial scripts: `python-package/examples`
+
+Build docs locally:
 
 ```bash
-pip install mkdocs mkdocs-material
+cd python-package
 mkdocs serve
 ```
 
-## Development
+Run tutorials/examples:
 
 ```bash
-pip install -e ".[dev]"
-pytest
+cd python-package
+python examples/run_huge_mb.py
+python examples/run_summary_and_plot.py
+python examples/run_network_plot.py
 ```
 
-Contributor guide:
-- `CONTRIBUTING.md`
-- `CHANGELOG.md`
+If you use custom R library path:
 
-Release automation:
-- `scripts/bump_version.py`
-- `scripts/build_dist.sh`
-- `scripts/release.sh`
-- GitHub Actions: `.github/workflows/python-package-release.yml`
+```bash
+R_LIBS_USER=/Users/tourzhao/Desktop/huge-master/.Rlib \
+python examples/run_huge_mb.py
+```
 
-## Notes
+## Performance notes
 
-- `rpy2` is required at runtime.
-- `fit.path` and `select.refit` are converted to SciPy sparse matrices when possible.
-- `fit.raw` / `select.raw` keep the original R objects for advanced users.
-- This is not yet a pure-Python/native-C wrapper; it depends on local R.
+`pyhuge` runtime is dominated by R backend solve time for medium/large problems.
+For many tiny repeated calls, Python-R bridge overhead can matter.
+Benchmark backend and end-to-end workflows separately when tuning performance.
+
+## Implemented APIs
+
+- `huge`, `huge_mb`, `huge_glasso`, `huge_ct`, `huge_tiger`
+- `huge_select`, `huge_npn`
+- `huge_generator`, `huge_inference`, `huge_roc`
+- `huge_summary`, `huge_select_summary`
+- `huge_plot_sparsity`, `huge_plot_roc`, `huge_plot_graph_matrix`, `huge_plot_network`
+- `test`
+
+## For developer
+
+```bash
+cd python-package
+pip install -e ".[dev]"
+pytest
+mkdocs build --strict
+bash scripts/build_docs.sh
+bash scripts/build_dist.sh
+```
+
+Optional e2e run with local R runtime:
+
+```bash
+export R_LIBS_USER=/Users/tourzhao/Desktop/huge-master/.Rlib
+export PYHUGE_REQUIRE_RUNTIME=1
+pytest tests/test_e2e_optional.py -rA
+```
+
+Workflows:
+
+- `.github/workflows/python-wrapper-tests.yml`
+- `.github/workflows/python-package-docs.yml`
+- `.github/workflows/python-package-release.yml`
+
+## Citation
+
+If you use `huge` / `pyhuge` in research, cite:
+
+```bibtex
+@article{zhao2012huge,
+  title   = {The huge Package for High-dimensional Undirected Graph Estimation in R},
+  author  = {Zhao, Tuo and Liu, Han and Roeder, Kathryn and Lafferty, John and Wasserman, Larry},
+  journal = {Journal of Machine Learning Research},
+  volume  = {13},
+  pages   = {1059--1062},
+  year    = {2012}
+}
+```
+
+## References
+
+- T. Zhao, H. Liu, K. Roeder, J. Lafferty, and L. Wasserman,
+  *The huge Package for High-dimensional Undirected Graph Estimation in R*,
+  JMLR 13:1059-1062, 2012.
+- Huge CRAN page: <https://cran.r-project.org/package=huge>
+- Repository: <https://github.com/HMJiangGatech/huge>

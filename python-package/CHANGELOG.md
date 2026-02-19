@@ -21,6 +21,7 @@
   - `huge_plot_roc`
   - `huge_plot_graph_matrix`
   - `huge_plot_network`
+  - `test` (runtime readiness probe)
 - Added strict argument validation with clear `PyHugeError` messages.
 - Expanded optional end-to-end tests (`tests/test_e2e_optional.py`) to cover:
   - method wrappers (`mb`, `ct`, `tiger`, `glasso`)
@@ -35,8 +36,15 @@
   - `scripts/build_dist.sh`
   - `scripts/release.sh`
   - `.github/workflows/python-package-release.yml`
+- Added Python docs website workflow:
+  - `.github/workflows/python-package-docs.yml`
+  - strict MkDocs build and GitHub Pages deployment
 - Added result dataclasses:
   - `HugeResult`
   - `HugeSelectResult`
 - Added MkDocs documentation set, including release process and architecture troubleshooting.
+- Added docs pages for tutorials, performance notes, citation, and changelog index.
+- Added packaging support files:
+  - `MANIFEST.in`
+  - Python package `.gitignore`
 - Added examples and pytest test suite.

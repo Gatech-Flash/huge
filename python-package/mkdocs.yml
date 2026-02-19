@@ -1,14 +1,21 @@
 site_name: pyhuge
 site_description: Python wrapper for the R package huge
+site_url: https://hmjianggatech.github.io/huge/
 repo_url: https://github.com/HMJiangGatech/huge
+repo_name: HMJiangGatech/huge
+docs_dir: docs
 theme:
   name: material
 nav:
-  - Home: docs/index.md
-  - Installation: docs/installation.md
-  - Quick Start: docs/quickstart.md
-  - API: docs/api.md
-  - Design: docs/design.md
-  - Release: docs/release.md
-  - Troubleshooting: docs/troubleshooting.md
-  - Contributing: docs/contributing.md
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quickstart.md
+  - API: api.md
+  - Tutorials: tutorials.md
+  - Performance: performance.md
+  - Design: design.md
+  - Release: release.md
+  - Troubleshooting: troubleshooting.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+  - Citation: citation.md

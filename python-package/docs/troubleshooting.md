@@ -1,5 +1,13 @@
 # Troubleshooting
 
+## First diagnostic step
+
+Run:
+
+```bash
+python -c "import pyhuge; print(pyhuge.test())"
+```
+
 ## `PyHugeError: rpy2 is required`
 
 Install dependency:

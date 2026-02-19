@@ -1,5 +1,19 @@
 # Quick Start
 
+## Runtime check
+
+```python
+import pyhuge
+print(pyhuge.test())
+```
+
+If you want strict enforcement:
+
+```python
+import pyhuge
+pyhuge.test(require_runtime=True)
+```
+
 ## Basic graph path estimation
 
 ```python
@@ -93,3 +107,5 @@ inf = huge_inference(
 )
 print("Type I error:", inf.error)
 ```
+
+For script-style walkthroughs, see `tutorials.md`.

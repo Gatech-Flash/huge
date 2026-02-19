@@ -12,6 +12,12 @@ pytest
 mkdocs serve
 ```
 
+Docs strict build:
+
+```bash
+mkdocs build --strict
+```
+
 Run optional e2e tests with local R runtime:
 
 ```bash
@@ -25,6 +31,7 @@ Release commands:
 ```bash
 python scripts/bump_version.py 0.2.0
 bash scripts/build_dist.sh
+bash scripts/build_docs.sh
 ```
 
 See `release.md` for full publishing flow.
