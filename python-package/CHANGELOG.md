@@ -1,0 +1,42 @@
+# Changelog
+
+## 0.1.0
+
+- Initial Python wrapper package `pyhuge`.
+- Implemented APIs:
+  - `huge`
+  - `huge_mb`
+  - `huge_glasso`
+  - `huge_ct`
+  - `huge_tiger`
+  - `huge_select`
+  - `huge_npn`
+  - `huge_generator`
+  - `huge_inference`
+  - `huge_roc`
+- Added utility APIs:
+  - `huge_summary`
+  - `huge_select_summary`
+  - `huge_plot_sparsity`
+  - `huge_plot_roc`
+  - `huge_plot_graph_matrix`
+  - `huge_plot_network`
+- Added strict argument validation with clear `PyHugeError` messages.
+- Expanded optional end-to-end tests (`tests/test_e2e_optional.py`) to cover:
+  - method wrappers (`mb`, `ct`, `tiger`, `glasso`)
+  - model selection (`ric`, `stars`, `ebic`)
+  - `huge_npn`, `huge_generator`, `huge_roc`, `huge_inference`
+  - summary helpers and network plotting
+- Added CI split:
+  - `unit` matrix job (pure Python tests)
+  - `e2e-r-runtime` job (R+rpy2 integration tests)
+- Added Python package release automation:
+  - `scripts/bump_version.py`
+  - `scripts/build_dist.sh`
+  - `scripts/release.sh`
+  - `.github/workflows/python-package-release.yml`
+- Added result dataclasses:
+  - `HugeResult`
+  - `HugeSelectResult`
+- Added MkDocs documentation set, including release process and architecture troubleshooting.
+- Added examples and pytest test suite.

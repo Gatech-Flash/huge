@@ -1,6 +1,13 @@
 ^CRAN-RELEASE$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^\.gitignore$
+^\.github$
+^src/\.gitignore$
+^vignettes/\.gitignore$
+^\.Rlib($|/)
+^.*\.Rcheck$
+^python-package$
 cran-comments.md
 benchmark/*
 revdep/*

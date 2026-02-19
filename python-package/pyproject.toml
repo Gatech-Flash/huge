@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyhuge"
+version = "0.1.0"
+description = "Python wrapper for the R package huge"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-2.0-only" }
+authors = [
+  { name = "Tuo Zhao", email = "tourzhao@gatech.edu" }
+]
+keywords = ["graphical-model", "graphical-lasso", "sparse", "statistics", "rpy2"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+]
+dependencies = [
+  "numpy>=1.23",
+  "scipy>=1.9",
+  "rpy2>=3.5"
+]
+
+[project.optional-dependencies]
+docs = [
+  "mkdocs>=1.5",
+  "mkdocs-material>=9.5"
+]
+test = [
+  "pytest>=7.4"
+]
+dev = [
+  "pytest>=7.4",
+  "matplotlib>=3.8",
+  "networkx>=3.2",
+  "build>=1.2",
+  "twine>=5.1",
+  "mkdocs>=1.5",
+  "mkdocs-material>=9.5"
+]
+viz = [
+  "matplotlib>=3.8",
+  "networkx>=3.2"
+]
+release = [
+  "build>=1.2",
+  "twine>=5.1"
+]
+
+[project.urls]
+Repository = "https://github.com/HMJiangGatech/huge"
+Documentation = "https://github.com/HMJiangGatech/huge/tree/master/python-package/docs"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyhuge*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-q"

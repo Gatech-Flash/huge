@@ -1,33 +1,20 @@
 ## Test environments
-* Mac OS X, R 4.1.0
-* ubuntu 18.04, R 4.1.0
-* windows 10, R 4.1.0
-
-## News
-Compared to 1.3.4, we update the Rcpp dependency.
+* macOS Tahoe 26.3, R 4.5.2 (aarch64-apple-darwin20)
 
 ## R CMD check results
-There were no ERRORs or WARNINGs or NOTEs.
+* `R CMD build` on the source directory: OK
+* `R CMD check --as-cran huge_1.4.tar.gz`: 0 ERROR, 1 WARNING, 3 NOTE
 
-## revdepcheck results
+The WARNING/NOTEs are environment-specific on the local machine:
+* WARNING: missing external `checkbashisms` script
+* NOTE: no Internet access for CRAN incoming feasibility checks
+* NOTE: HTML tidy binary not recent enough
+* NOTE: temporary `xcrun_db` detritus
 
-We checked 22 reverse dependencies (20 from CRAN + 2 from Bioconductor), comparing R CMD check results across CRAN and dev versions of this package.
-
- * We saw 0 new problems
- * We failed to check 6 packages
-
-Issues with CRAN packages are summarised below.
-
-### Failed to check
-
-* BDgraph      (NA)
-* netgwas      (NA)
-* nutriNetwork (NA)
-* pcalg        (NA)
-* qgraph       (NA)
-* stm          (NA)
+There are no package-specific ERRORs/WARNINGs.
 
 ## Resubmission
-This is a resubmission. In this version I have:
+This release updates package metadata for version 1.4 and includes code quality and robustness improvements, including C++ and R-side bug fixes and performance optimizations.
 
-* fix pdf size warning
+The maintainer has been updated to:
+Tuo Zhao <tourzhao@gatech.edu>
