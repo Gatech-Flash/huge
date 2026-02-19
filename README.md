@@ -2,12 +2,23 @@
 
 [![](https://cranlogs.r-pkg.org/badges/huge)](https://cran.r-project.org/package=huge)[![](https://cranlogs.r-pkg.org/badges/grand-total/huge)](https://cran.r-project.org/package=huge)
 
-<h4 align="center">R Package for High-Dimensional Undirected Graph Estimation and Inference</h4>
+<h4 align="center">General Package for High-Dimensional Undirected Graph Estimation and Inference (R + Python)</h4>
 
-___Huge___ (Huge-Dimensional Undirected Graph Estimation) implements the algorithm of estimating the parameters of a Gaussian distribution in such a way that the resulting undirected graphical model is sparse. The core algorithm is implemented in C++ with RcppEigen support for portable high performance linear algebra. It also implements a unified framework to quantify local and global inferential uncertainty for high dimensional graphical models. In particular, we consider the problems of testing the presence of a single edge. Runtime profiling is documented in the [__Performance__](#performance) section.
+___Huge___ (High-Dimensional Undirected Graph Estimation) is a general project for sparse graphical model estimation and inference in high dimensions. The core algorithm is implemented in C++ with RcppEigen support for portable high performance linear algebra.
 
+This repository provides two package variants:
 
-## Installation
+- R package: `huge` (native R interface, available on CRAN)
+- Python package: `pyhuge` (Python interface via `rpy2` bridge)
+
+Both variants target the same modeling pipeline, including graph estimation, model selection, and inferential analysis.
+
+## Package Variants
+
+- **R version (`huge`)**: see sections below for prerequisites and installation.
+- **Python version (`pyhuge`)**: see [Python Package (`pyhuge`)](#python-package-pyhuge).
+
+## R Package (`huge`)
 
 ### Prerequisites
 
