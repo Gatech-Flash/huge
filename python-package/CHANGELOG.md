@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Prepare first publish-ready `pyhuge` release line.
+- Reframe repository and package documentation to cover both R (`huge`) and Python (`pyhuge`) variants.
+- Add `docs/man/` function manual pages (one page per public API), analogous to R `man/` lookup style.
+- Add docs website deployment workflow (`python-package-docs`) and integrate manual pages into MkDocs navigation.
+- Add runtime readiness helper `pyhuge.test(require_runtime=...)` and corresponding public API tests.
+- Add packaging metadata and manifest improvements for release/distribution (`MANIFEST.in`, project URLs, include-package-data).
+- Keep Python test matrix and optional R-runtime e2e path aligned with current wrapper scope.
+
+
 ## 0.1.0
 
 - Initial Python wrapper package `pyhuge`.
