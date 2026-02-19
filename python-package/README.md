@@ -120,6 +120,7 @@ plt.show()
 
 - Website: <https://hmjianggatech.github.io/huge/>
 - Docs source: `python-package/docs`
+- Function manual directory: `python-package/docs/man` (R `man/`-style layout)
 - Tutorial scripts: `python-package/examples`
 
 Build docs locally:

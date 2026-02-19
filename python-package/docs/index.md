@@ -7,6 +7,7 @@ undirected graph estimation.
 
 - Installation: `installation.md`
 - API: `api.md`
+- Function manual (one page per function): `man/index.md`
 - Tutorials: `tutorials.md`
 - Performance: `performance.md`
 - Troubleshooting: `troubleshooting.md`

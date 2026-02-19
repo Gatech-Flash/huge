@@ -11,6 +11,25 @@ nav:
   - Installation: installation.md
   - Quick Start: quickstart.md
   - API: api.md
+  - Function Manual:
+      - Index: man/index.md
+      - huge: man/huge.md
+      - huge_mb: man/huge_mb.md
+      - huge_glasso: man/huge_glasso.md
+      - huge_ct: man/huge_ct.md
+      - huge_tiger: man/huge_tiger.md
+      - huge_select: man/huge_select.md
+      - huge_npn: man/huge_npn.md
+      - huge_generator: man/huge_generator.md
+      - huge_inference: man/huge_inference.md
+      - huge_roc: man/huge_roc.md
+      - huge_summary: man/huge_summary.md
+      - huge_select_summary: man/huge_select_summary.md
+      - huge_plot_sparsity: man/huge_plot_sparsity.md
+      - huge_plot_roc: man/huge_plot_roc.md
+      - huge_plot_graph_matrix: man/huge_plot_graph_matrix.md
+      - huge_plot_network: man/huge_plot_network.md
+      - test: man/test.md
   - Tutorials: tutorials.md
   - Performance: performance.md
   - Design: design.md

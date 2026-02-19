@@ -44,6 +44,7 @@
   - `HugeSelectResult`
 - Added MkDocs documentation set, including release process and architecture troubleshooting.
 - Added docs pages for tutorials, performance notes, citation, and changelog index.
+- Added `docs/man/` function manual pages (one page per public API function), analogous to R `man/` style lookup.
 - Added packaging support files:
   - `MANIFEST.in`
   - Python package `.gitignore`
