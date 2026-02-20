@@ -161,13 +161,13 @@ def _py2r(value: Any) -> Any:
     if value is None:
         return ro.NULL
     with env["localconverter"](env["default_converter"] + env["numpy2ri"].converter):
-        return ro.conversion.py2rpy(value)
+        return ro.conversion.get_conversion().py2rpy(value)
 
 
 def _r2py(value: Any) -> Any:
     env = _r_env()
     with env["localconverter"](env["default_converter"] + env["numpy2ri"].converter):
-        return env["ro"].conversion.rpy2py(value)
+        return env["ro"].conversion.get_conversion().rpy2py(value)
 
 
 def _scalar(value: Any) -> Optional[float]:
