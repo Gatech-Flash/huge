@@ -62,4 +62,5 @@ jobs:
           cd python-package
           out="$(pytest -q tests/test_e2e_optional.py -rA)"
           echo "$out"
-          echo "$out" | grep -q "6 passed"
+          passed_count="$(printf '%s\n' "$out" | awk '/^PASSED tests\/test_e2e_optional.py::/{n++} END{print n+0}')"
+          test "$passed_count" -eq 6
