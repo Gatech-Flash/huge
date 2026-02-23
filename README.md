@@ -59,7 +59,7 @@ Then load the devtools package and install huge
 
 ```
 library(devtools)
-install_github("HMJiangGatech/huge")
+install_github("Gatech-Flash/huge")
 library(huge)
 ```
 
@@ -92,7 +92,7 @@ backend unchanged.
 ### Python installation
 
 ```bash
-git clone https://github.com/HMJiangGatech/huge.git
+git clone https://github.com/Gatech-Flash/huge.git
 cd huge/python-package
 pip install -e .
 python -c "import pyhuge; print(pyhuge.test())"
@@ -107,7 +107,7 @@ pip install -e ".[dev]"      # tests + docs + release tooling
 
 ### Python documentation website and CI
 
-- Docs site: <https://hmjianggatech.github.io/huge/>
+- Docs site: <https://gatech-flash.github.io/huge/>
 - Python tests workflow: `.github/workflows/python-wrapper-tests.yml`
 - Python docs workflow: `.github/workflows/python-package-docs.yml`
 - Python release workflow: `.github/workflows/python-package-release.yml`

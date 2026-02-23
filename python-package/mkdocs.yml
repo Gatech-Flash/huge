@@ -1,8 +1,8 @@
 site_name: pyhuge
 site_description: Python wrapper for the R package huge
-site_url: https://hmjianggatech.github.io/huge/
-repo_url: https://github.com/HMJiangGatech/huge
-repo_name: HMJiangGatech/huge
+site_url: https://gatech-flash.github.io/huge/
+repo_url: https://github.com/Gatech-Flash/huge
+repo_name: Gatech-Flash/huge
 docs_dir: docs
 theme:
   name: material

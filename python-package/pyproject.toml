@@ -53,11 +53,11 @@ release = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/HMJiangGatech/huge"
-Repository = "https://github.com/HMJiangGatech/huge"
-Documentation = "https://hmjianggatech.github.io/huge/"
-Issues = "https://github.com/HMJiangGatech/huge/issues"
-Changelog = "https://github.com/HMJiangGatech/huge/blob/master/python-package/CHANGELOG.md"
+Homepage = "https://github.com/Gatech-Flash/huge"
+Repository = "https://github.com/Gatech-Flash/huge"
+Documentation = "https://gatech-flash.github.io/huge/"
+Issues = "https://github.com/Gatech-Flash/huge/issues"
+Changelog = "https://github.com/Gatech-Flash/huge/blob/master/python-package/CHANGELOG.md"
 
 [tool.setuptools]
 include-package-data = true

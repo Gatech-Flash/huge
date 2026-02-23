@@ -1,8 +1,8 @@
 # pyhuge Python Package
 
-[![Python wrapper tests](https://github.com/HMJiangGatech/huge/actions/workflows/python-wrapper-tests.yml/badge.svg)](https://github.com/HMJiangGatech/huge/actions/workflows/python-wrapper-tests.yml)
-[![Python docs](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-docs.yml/badge.svg)](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-docs.yml)
-[![Python package release](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-release.yml/badge.svg)](https://github.com/HMJiangGatech/huge/actions/workflows/python-package-release.yml)
+[![Python wrapper tests](https://github.com/Gatech-Flash/huge/actions/workflows/python-wrapper-tests.yml/badge.svg)](https://github.com/Gatech-Flash/huge/actions/workflows/python-wrapper-tests.yml)
+[![Python docs](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-docs.yml/badge.svg)](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-docs.yml)
+[![Python package release](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-release.yml/badge.svg)](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-release.yml)
 
 `pyhuge` is the Python wrapper for the
 [`huge`](https://cran.r-project.org/package=huge) package:
@@ -63,7 +63,7 @@ The Python package directory is organized as:
 Install from source:
 
 ```bash
-git clone https://github.com/HMJiangGatech/huge.git
+git clone https://github.com/Gatech-Flash/huge.git
 cd huge/python-package
 pip install -e .
 ```
@@ -71,7 +71,7 @@ pip install -e .
 Install directly from GitHub:
 
 ```bash
-pip install "git+https://github.com/HMJiangGatech/huge.git#subdirectory=python-package"
+pip install "git+https://github.com/Gatech-Flash/huge.git#subdirectory=python-package"
 ```
 
 Optional extras:
@@ -118,7 +118,7 @@ plt.show()
 
 ## Documentation and tutorials
 
-- Website: <https://hmjianggatech.github.io/huge/>
+- Website: <https://gatech-flash.github.io/huge/>
 - Docs source: `python-package/docs`
 - Function manual directory: `python-package/docs/man` (R `man/`-style layout)
 - Tutorial scripts: `python-package/examples`
@@ -207,4 +207,4 @@ If you use `huge` / `pyhuge` in research, cite:
   *The huge Package for High-dimensional Undirected Graph Estimation in R*,
   JMLR 13:1059-1062, 2012.
 - Huge CRAN page: <https://cran.r-project.org/package=huge>
-- Repository: <https://github.com/HMJiangGatech/huge>
+- Repository: <https://github.com/Gatech-Flash/huge>

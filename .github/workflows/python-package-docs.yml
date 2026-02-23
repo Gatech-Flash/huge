@@ -46,7 +46,7 @@ jobs:
           path: site
 
   deploy:
-    if: github.event_name != 'pull_request' && github.repository == 'HMJiangGatech/huge'
+    if: github.event_name != 'pull_request' && github.repository == 'Gatech-Flash/huge'
     needs: build
     runs-on: ubuntu-latest
     environment:

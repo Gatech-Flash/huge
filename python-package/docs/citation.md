@@ -15,4 +15,4 @@ If you use `huge` / `pyhuge` in academic work, cite:
 
 Project repository:
 
-- [HMJiangGatech/huge](https://github.com/HMJiangGatech/huge)
+- [Gatech-Flash/huge](https://github.com/Gatech-Flash/huge)
