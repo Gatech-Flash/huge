@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Fix CI e2e runtime dependency installation by installing `Rcpp`, `RcppEigen`, and `igraph` in `R_LIBS_USER`.
+- Make e2e pass criteria robust to pytest output formatting changes.
+- Migrate rpy2 conversion calls to `get_conversion()` API to avoid deprecation warnings.
+- Decouple docs build from `rpy2`/R runtime requirements and restrict docs deploy to the upstream repository.
+- Update repository/documentation links and docs deployment target to `Gatech-Flash/huge`.
+
+
 ## 0.2.0
 
 - Prepare first publish-ready `pyhuge` release line.
