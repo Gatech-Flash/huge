@@ -34,12 +34,14 @@ undirected graph estimation.
   - `huge_plot_graph_matrix(...)`
   - `huge_plot_network(...)`
   - `test(...)`
+  - `doctor(...)`
 - Typed return objects:
   - `HugeResult`
 - `HugeSelectResult`
 - Sparse outputs converted to SciPy sparse matrices where appropriate.
 - A runtime probe helper:
   - `pyhuge.test(require_runtime=False)`
+  - `pyhuge.doctor(require_runtime=False)`
 
 ## Current architecture
 

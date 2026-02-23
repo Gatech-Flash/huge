@@ -22,3 +22,4 @@ Dictionary with keys:
 
 - If `require_runtime=True`, raises `PyHugeError` when runtime is unavailable.
 - Useful as a first diagnostic step after installation.
+- For richer diagnostics and suggested commands, use `doctor` / `pyhuge-doctor`.

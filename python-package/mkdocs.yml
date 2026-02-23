@@ -30,6 +30,7 @@ nav:
       - huge_plot_graph_matrix: man/huge_plot_graph_matrix.md
       - huge_plot_network: man/huge_plot_network.md
       - test: man/test.md
+      - doctor: man/doctor.md
   - Tutorials: tutorials.md
   - Performance: performance.md
   - Design: design.md

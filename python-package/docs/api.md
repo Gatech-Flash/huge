@@ -58,6 +58,28 @@ Returns a status dictionary:
 
 If `require_runtime=True`, it raises `PyHugeError` when runtime requirements are not met.
 
+## `pyhuge.doctor`
+
+```python
+doctor(require_runtime=False) -> dict
+format_doctor_report(report: dict) -> str
+```
+
+Installation/runtime diagnostics helper for novice-friendly setup.
+
+- checks Python/R architecture and executable paths;
+- checks `rpy2` importability;
+- checks R package `huge` visibility;
+- returns concrete next-step suggestions.
+
+CLI entry points:
+
+```bash
+pyhuge-doctor
+python -m pyhuge.doctor --json
+python -m pyhuge.doctor --require-runtime
+```
+
 ## Method-specific wrappers
 
 These are convenience wrappers around `huge(...)` with fixed `method`:

@@ -2,6 +2,12 @@
 
 ## Runtime check
 
+```bash
+pyhuge-doctor --require-runtime
+```
+
+or inside Python:
+
 ```python
 import pyhuge
 print(pyhuge.test())

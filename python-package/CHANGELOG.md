@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Make `rpy2` a runtime optional dependency (`pyhuge[runtime]`) so `pip install pyhuge` is beginner-friendly.
+- Add `pyhuge.doctor()` and CLI `pyhuge-doctor` for one-command runtime diagnostics with actionable suggestions.
+- Expand installation/troubleshooting/docs to include copy-paste setup flow for non-expert users.
+- Add unit tests for doctor helpers and include them in CI unit workflow coverage.
+
 ## 0.2.1
 
 - Fix CI e2e runtime dependency installation by installing `Rcpp`, `RcppEigen`, and `igraph` in `R_LIBS_USER`.

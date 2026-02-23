@@ -28,7 +28,7 @@ jobs:
       - name: Run tests
         run: |
           cd python-package
-          pytest tests/test_core_unit.py tests/test_runtime_errors.py
+          pytest tests/test_core_unit.py tests/test_runtime_errors.py tests/test_public_api.py tests/test_doctor.py
 
   e2e-r-runtime:
     runs-on: ubuntu-latest

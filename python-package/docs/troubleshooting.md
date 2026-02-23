@@ -5,7 +5,7 @@
 Run:
 
 ```bash
-python -c "import pyhuge; print(pyhuge.test())"
+pyhuge-doctor
 ```
 
 ## `PyHugeError: rpy2 is required`
@@ -13,7 +13,7 @@ python -c "import pyhuge; print(pyhuge.test())"
 Install dependency:
 
 ```bash
-pip install rpy2
+pip install "pyhuge[runtime]"
 ```
 
 ## `R package huge is not installed`

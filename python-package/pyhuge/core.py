@@ -135,7 +135,7 @@ def _r_env() -> dict[str, Any]:
         from rpy2.robjects.packages import PackageNotInstalledError, importr
     except ModuleNotFoundError as exc:
         raise PyHugeError(
-            "rpy2 is required. Install with `pip install rpy2`."
+            'rpy2 is required. Install with `pip install "pyhuge[runtime]"`.'
         ) from exc
 
     try:

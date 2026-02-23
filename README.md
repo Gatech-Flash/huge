@@ -92,17 +92,17 @@ backend unchanged.
 ### Python installation
 
 ```bash
-git clone https://github.com/Gatech-Flash/huge.git
-cd huge/python-package
-pip install -e .
-python -c "import pyhuge; print(pyhuge.test())"
+pip install pyhuge
+pip install "pyhuge[runtime]"
+R -q -e 'install.packages(c("huge","Rcpp","RcppEigen","igraph"), repos="https://cloud.r-project.org")'
+pyhuge-doctor --require-runtime
 ```
 
 Optional extras:
 
 ```bash
-pip install -e ".[viz]"      # matplotlib + networkx
-pip install -e ".[dev]"      # tests + docs + release tooling
+pip install "pyhuge[viz]"      # matplotlib + networkx
+pip install "pyhuge[dev]"      # tests + docs + release tooling
 ```
 
 ### Python documentation website and CI

@@ -54,11 +54,20 @@ The Python package directory is organized as:
 ## Requirements
 
 - Python `>=3.9`
-- R installed and available in PATH
-- R package `huge` installed (with `Rcpp`, `RcppEigen`, `igraph`, etc.)
-- Python and R architecture must match (both `arm64` or both `x86_64`)
+- Runtime mode only: R installed and available in PATH
+- Runtime mode only: R package `huge` installed (with `Rcpp`, `RcppEigen`, `igraph`, etc.)
+- Runtime mode only: Python and R architecture must match (both `arm64` or both `x86_64`)
 
 ## Installation
+
+Install from PyPI (recommended):
+
+```bash
+pip install pyhuge
+pip install "pyhuge[runtime]"
+R -q -e 'install.packages(c("huge","Rcpp","RcppEigen","igraph"), repos="https://cloud.r-project.org")'
+pyhuge-doctor --require-runtime
+```
 
 Install from source:
 
@@ -66,6 +75,7 @@ Install from source:
 git clone https://github.com/Gatech-Flash/huge.git
 cd huge/python-package
 pip install -e .
+pip install -e ".[runtime]"
 ```
 
 Install directly from GitHub:
@@ -77,15 +87,15 @@ pip install "git+https://github.com/Gatech-Flash/huge.git#subdirectory=python-pa
 Optional extras:
 
 ```bash
-pip install -e ".[viz]"      # matplotlib + networkx
-pip install -e ".[release]"  # build + twine
-pip install -e ".[dev]"      # test + docs + release deps
+pip install "pyhuge[viz]"      # matplotlib + networkx
+pip install "pyhuge[runtime]"  # rpy2 bridge (required for model fitting)
+pip install "pyhuge[release]"  # build + twine
 ```
 
 Runtime check:
 
 ```bash
-python -c "import pyhuge; print(pyhuge.test())"
+pyhuge-doctor
 ```
 
 If `runtime=False`, verify `R_LIBS_USER`, architecture match, and `huge` visibility in R.
@@ -159,7 +169,7 @@ Benchmark backend and end-to-end workflows separately when tuning performance.
 - `huge_generator`, `huge_inference`, `huge_roc`
 - `huge_summary`, `huge_select_summary`
 - `huge_plot_sparsity`, `huge_plot_roc`, `huge_plot_graph_matrix`, `huge_plot_network`
-- `test`
+- `test`, `doctor`, `format_doctor_report`
 
 ## For developer
 

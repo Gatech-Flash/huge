@@ -22,11 +22,13 @@ classifiers = [
 ]
 dependencies = [
   "numpy>=1.23",
-  "scipy>=1.9",
-  "rpy2>=3.5"
+  "scipy>=1.9"
 ]
 
 [project.optional-dependencies]
+runtime = [
+  "rpy2>=3.5"
+]
 docs = [
   "mkdocs>=1.5",
   "mkdocs-material>=9.5"
@@ -36,6 +38,7 @@ test = [
 ]
 dev = [
   "pytest>=7.4",
+  "rpy2>=3.5",
   "matplotlib>=3.8",
   "networkx>=3.2",
   "build>=1.2",
@@ -51,6 +54,9 @@ release = [
   "build>=1.2",
   "twine>=5.1"
 ]
+
+[project.scripts]
+pyhuge-doctor = "pyhuge.doctor:main"
 
 [project.urls]
 Homepage = "https://github.com/Gatech-Flash/huge"
