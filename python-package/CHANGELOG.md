@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 - Make `rpy2` a runtime optional dependency (`pyhuge[runtime]`) so `pip install pyhuge` is beginner-friendly.
 - Add `pyhuge.doctor()` and CLI `pyhuge-doctor` for one-command runtime diagnostics with actionable suggestions.
