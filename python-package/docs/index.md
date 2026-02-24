@@ -1,52 +1,55 @@
 # pyhuge Documentation
 
-`pyhuge` provides Python access to the `huge` R package for high-dimensional
-undirected graph estimation.
+`pyhuge` is the Python interface to the R package `huge` for high-dimensional
+undirected graph estimation and inference.
 
-## Quick links
+If you are new to both `huge` and `pyhuge`, follow this path:
 
-- Installation: `installation.md`
-- API: `api.md`
-- Function manual (one page per function): `man/index.md`
-- Tutorials: `tutorials.md`
-- Performance: `performance.md`
-- Troubleshooting: `troubleshooting.md`
-- Release: `release.md`
-- Documentation website deployment: `.github/workflows/python-package-docs.yml`
+1. [Start Here](getting-started.md)
+2. [Installation](installation.md)
+3. [Quick Start](quickstart.md)
+4. [Beginner Workflow](beginner-workflow.md)
+5. [Troubleshooting](troubleshooting.md)
 
-## What you get
+## What pyhuge provides
 
-- Python-callable APIs:
-  - `huge(...)`
-  - `huge_mb(...)`
-  - `huge_glasso(...)`
-  - `huge_ct(...)`
-  - `huge_tiger(...)`
-  - `huge_select(...)`
-  - `huge_npn(...)`
-  - `huge_generator(...)`
-  - `huge_inference(...)`
-  - `huge_roc(...)`
-  - `huge_summary(...)`
-  - `huge_select_summary(...)`
-  - `huge_plot_sparsity(...)`
-  - `huge_plot_roc(...)`
-  - `huge_plot_graph_matrix(...)`
-  - `huge_plot_network(...)`
-  - `test(...)`
-  - `doctor(...)`
-- Typed return objects:
-  - `HugeResult`
-- `HugeSelectResult`
-- Sparse outputs converted to SciPy sparse matrices where appropriate.
-- A runtime probe helper:
-  - `pyhuge.test(require_runtime=False)`
-  - `pyhuge.doctor(require_runtime=False)`
+- Core estimators: `huge`, `huge_mb`, `huge_glasso`, `huge_ct`, `huge_tiger`
+- Model selection and preprocessing: `huge_select`, `huge_npn`
+- Simulation and evaluation: `huge_generator`, `huge_roc`, `huge_inference`
+- Plotting helpers: `huge_plot_sparsity`, `huge_plot_roc`,
+  `huge_plot_graph_matrix`, `huge_plot_network`, `huge_plot`
+- Dataset helper: `huge_stockdata`
+- Runtime check helper: `pyhuge.test(require_runtime=False)`
 
-## Current architecture
+## Runtime architecture
 
-This version is an `rpy2` bridge wrapper:
-- Python -> `rpy2` -> R `huge` package.
-- Existing R/C++ implementation remains the source of truth.
+`pyhuge` is a bridge wrapper:
 
-See `design.md` for details and roadmap.
+- Python code calls `rpy2`
+- `rpy2` calls the R package `huge`
+- R/C++ backend does the core computation
+
+This means:
+
+- You get mature `huge` behavior from Python.
+- You must have a working local R runtime.
+- Python and R architectures must match (`arm64` vs `x86_64`).
+
+For architecture and environment details, see [Installation](installation.md)
+and [Troubleshooting](troubleshooting.md).
+
+## Documentation map
+
+- Concept and first-use pages:
+  - [Start Here](getting-started.md)
+  - [Beginner Workflow](beginner-workflow.md)
+  - [FAQ](faq.md)
+- Task pages:
+  - [Quick Start](quickstart.md)
+  - [Tutorials](tutorials.md)
+  - [Troubleshooting](troubleshooting.md)
+- Reference pages:
+  - [API Reference](api.md)
+  - [Function Manual](man/index.md)
+  - [Performance Notes](performance.md)
+  - [Design Notes](design.md)

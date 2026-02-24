@@ -8,8 +8,13 @@ theme:
   name: material
 nav:
   - Home: index.md
+  - Start Here: getting-started.md
   - Installation: installation.md
   - Quick Start: quickstart.md
+  - Beginner Workflow: beginner-workflow.md
+  - FAQ: faq.md
+  - Troubleshooting: troubleshooting.md
+  - Tutorials: tutorials.md
   - API: api.md
   - Function Manual:
       - Index: man/index.md
@@ -29,13 +34,13 @@ nav:
       - huge_plot_roc: man/huge_plot_roc.md
       - huge_plot_graph_matrix: man/huge_plot_graph_matrix.md
       - huge_plot_network: man/huge_plot_network.md
-      - test: man/test.md
+      - huge_plot: man/huge_plot.md
+      - huge_stockdata: man/huge_stockdata.md
       - doctor: man/doctor.md
-  - Tutorials: tutorials.md
+      - test: man/test.md
   - Performance: performance.md
   - Design: design.md
   - Release: release.md
-  - Troubleshooting: troubleshooting.md
   - Contributing: contributing.md
   - Changelog: changelog.md
   - Citation: citation.md

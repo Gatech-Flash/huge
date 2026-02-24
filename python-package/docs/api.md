@@ -58,26 +58,19 @@ Returns a status dictionary:
 
 If `require_runtime=True`, it raises `PyHugeError` when runtime requirements are not met.
 
-## `pyhuge.doctor`
+## `pyhuge.doctor` and `pyhuge.format_doctor_report`
 
 ```python
 doctor(require_runtime=False) -> dict
 format_doctor_report(report: dict) -> str
 ```
 
-Installation/runtime diagnostics helper for novice-friendly setup.
+Runtime diagnostics helper with actionable suggestions.
 
-- checks Python/R architecture and executable paths;
-- checks `rpy2` importability;
-- checks R package `huge` visibility;
-- returns concrete next-step suggestions.
-
-CLI entry points:
+CLI entry:
 
 ```bash
 pyhuge-doctor
-python -m pyhuge.doctor --json
-python -m pyhuge.doctor --require-runtime
 ```
 
 ## Method-specific wrappers
@@ -215,6 +208,20 @@ Wrapper over R `huge.roc()`.
 - `auc`: float.
 - `raw`: original R object.
 
+## `pyhuge.huge_stockdata`
+
+```python
+huge_stockdata() -> HugeStockDataResult
+```
+
+Loads built-in dataset `stockdata` from R package `huge`.
+
+### Returns: `HugeStockDataResult`
+
+- `data`: stock price matrix (`numpy.ndarray`, shape `1258 x 452`)
+- `info`: company metadata matrix (`numpy.ndarray`, shape `452 x 3`)
+- `raw`: original R object
+
 ## Summaries
 
 ```python
@@ -241,6 +248,24 @@ huge_plot_network(fit, index=-1, ax=None, layout="spring", ...)
 Plotting dependencies:
 - `matplotlib` for all plots
 - `networkx` additionally for `huge_plot_network`
+
+## `pyhuge.huge_plot`
+
+```python
+huge_plot(
+    g,
+    epsflag=False,
+    graph_name="default",
+    cur_num=1,
+    location=None,
+) -> Optional[str]
+```
+
+Wrapper over R `huge.plot()` style visualization.
+
+- `g`: adjacency matrix
+- `epsflag=True`: save EPS file and return output file path
+- `epsflag=False`: draw through temporary device and return `None`
 
 ## Exceptions
 

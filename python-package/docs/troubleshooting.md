@@ -1,93 +1,129 @@
 # Troubleshooting
 
-## First diagnostic step
+## First diagnostic step (always run this first)
 
 Run:
 
 ```bash
-pyhuge-doctor
+python -c "import pyhuge; print(pyhuge.test())"
 ```
+
+If this already prints `runtime=True`, your base runtime is healthy.
+
+## Fast environment snapshot
+
+```bash
+python -c 'import sys,platform; print("python", sys.executable); print("machine", platform.machine())'
+R -q -e 'cat("R arch:", R.version$arch, "\n"); print(.libPaths()); suppressWarnings(print(packageVersion("huge")))'
+```
+
+This captures the most common mismatch causes in one pass.
+
+## Symptom -> likely cause -> fix
 
 ## `PyHugeError: rpy2 is required`
 
-Install dependency:
+Cause: `rpy2` is not installed in the active Python environment.
+
+Fix:
 
 ```bash
-pip install "pyhuge[runtime]"
+pip install rpy2
 ```
 
-## `R package huge is not installed`
+## `R package huge is not installed in current R library paths`
 
-Install in R:
+Cause: R package `huge` is missing from the R library path visible to the
+Python process.
+
+Fix:
 
 ```bash
 R -q -e 'install.packages("huge", repos="https://cloud.r-project.org")'
 ```
 
-If using a custom R library path:
+If you use a custom R library path:
 
 ```bash
 R_LIBS_USER=/path/to/Rlib R -q -e 'install.packages("huge", repos="https://cloud.r-project.org")'
+R_LIBS_USER=/path/to/Rlib python your_script.py
 ```
 
-## Python can import `pyhuge` but call fails to find R package
+## Python imports `pyhuge`, but runtime calls still fail
 
-Your Python process may be linked to a different R library environment.
-Check:
+Cause: `python` command and `pip` command point to different environments.
+
+Fix:
 
 ```bash
-R -q -e 'print(.libPaths()); packageVersion("huge")'
+which python
+python -m pip show pyhuge
+python -c "import pyhuge; print(pyhuge.__file__)"
 ```
 
-Then ensure the same environment variables are visible to Python process
-(e.g. `R_LIBS_USER`).
+Use the same `python -m pip ...` pair consistently.
 
-## `rpy2` fails with incompatible architecture (arm64/x86_64)
+## `rpy2` or `libR` architecture mismatch
 
-If you see errors like `incompatible architecture (have 'arm64', need 'x86_64')`,
-your Python and R binaries are mismatched.
+Typical error text:
 
-Check:
+```bash
+incompatible architecture (have 'arm64', need 'x86_64')
+```
+
+Cause: Python and R architectures differ.
+
+Fix:
 
 ```bash
 python -c 'import platform; print(platform.machine())'
 R -q -e 'cat(R.version$arch, "\n")'
 ```
 
-Use a Python interpreter matching your R build (for Apple Silicon R, use arm64 Python, e.g. `/opt/homebrew/bin/python3`).
+Use a Python interpreter matching your R build.
+On Apple Silicon with arm64 R, prefer `/opt/homebrew/bin/python3`.
 
-## Sparse outputs are not in expected format
+## Plotting warnings in restricted environments
 
-`pyhuge` converts graph matrices to `scipy.sparse.csc_matrix` when possible.
-For dense numeric objects (`icov`, `cov`), output is `numpy.ndarray`.
-
-## Matplotlib cache / fontconfig warnings
-
-In restricted environments, matplotlib may warn about cache directory permissions.
-Set a writable config directory:
+Set writable cache + headless backend:
 
 ```bash
 export MPLBACKEND=Agg
 export MPLCONFIGDIR=/tmp/mplconfig
-mkdir -p "$MPLCONFIGDIR"
+export XDG_CACHE_HOME=/tmp/xdg-cache
+mkdir -p "$MPLCONFIGDIR" "$XDG_CACHE_HOME"
 ```
 
 ## `networkx is required for network plotting`
 
-Install optional visualization dependency:
+Cause: visualization extra is missing.
+
+Fix:
 
 ```bash
-pip install networkx
+pip install networkx matplotlib
 ```
 
-or with extras:
+or (source install):
 
 ```bash
 pip install -e ".[viz]"
 ```
 
-## Performance expectation
+## `R_LIBS_USER` not visible in Python run
 
-This wrapper runs full computation in R backend.
-For very frequent small calls, bridge overhead may be non-negligible.
-Batch calls where possible.
+Run Python with the same variable:
+
+```bash
+R_LIBS_USER=/path/to/Rlib python your_script.py
+```
+
+## Support checklist for issue reports
+
+Include:
+
+- output of `python -c "import pyhuge; print(pyhuge.test())"`
+- Python executable path
+- `R.version$arch`
+- `.libPaths()`
+- full traceback

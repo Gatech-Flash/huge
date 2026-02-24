@@ -2,7 +2,7 @@
 
 Version history is maintained in:
 
-- `/Users/tourzhao/Desktop/huge-master/python-package/CHANGELOG.md`
+- [`python-package/CHANGELOG.md`](https://github.com/Gatech-Flash/huge/blob/master/python-package/CHANGELOG.md)
 
 Current release line:
 

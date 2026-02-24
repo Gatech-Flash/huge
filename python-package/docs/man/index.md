@@ -30,8 +30,10 @@ one page per public function with usage and argument notes.
 - [`huge_plot_roc`](huge_plot_roc.md)
 - [`huge_plot_graph_matrix`](huge_plot_graph_matrix.md)
 - [`huge_plot_network`](huge_plot_network.md)
+- [`huge_plot`](huge_plot.md)
+- [`huge_stockdata`](huge_stockdata.md)
 
 ## Runtime helper
 
-- [`test`](test.md)
 - [`doctor`](doctor.md)
+- [`test`](test.md)

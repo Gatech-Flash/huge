@@ -1,12 +1,6 @@
 # Quick Start
 
-## Runtime check
-
-```bash
-pyhuge-doctor --require-runtime
-```
-
-or inside Python:
+## 0) Runtime check
 
 ```python
 import pyhuge
@@ -20,11 +14,11 @@ import pyhuge
 pyhuge.test(require_runtime=True)
 ```
 
-## Basic graph path estimation
+## 1) Basic graph path estimation
 
 ```python
 import numpy as np
-from pyhuge import huge
+from pyhuge import huge, huge_summary
 
 rng = np.random.default_rng(123)
 x = rng.normal(size=(120, 30))
@@ -40,6 +34,7 @@ fit = huge(
 print(fit.method)
 print(fit.lambda_path)
 print(len(fit.path), fit.path[0].shape)
+print(huge_summary(fit))
 ```
 
 Equivalent method-specific shortcut:
@@ -49,10 +44,10 @@ from pyhuge import huge_mb
 fit = huge_mb(x, nlambda=8, lambda_min_ratio=0.1, verbose=False)
 ```
 
-## Nonparanormal preprocessing + selection
+## 2) Nonparanormal preprocessing + selection
 
 ```python
-from pyhuge import huge_npn, huge_select
+from pyhuge import huge_npn, huge_select, huge_select_summary
 
 x_npn = huge_npn(x, npn_func="shrinkage", verbose=False)
 fit = huge(x_npn, method="glasso", nlambda=10, verbose=False)
@@ -60,21 +55,19 @@ sel = huge_select(fit, criterion="ebic", ebic_gamma=0.5, verbose=False)
 
 print(sel.opt_lambda, sel.opt_sparsity)
 print(sel.refit.shape)
+print(huge_select_summary(sel))
 ```
 
-## Summary and plotting helpers
+## 3) Plot helpers
 
 ```python
 from pyhuge import (
-    huge_summary, huge_select_summary,
-    huge_plot_sparsity, huge_plot_graph_matrix, huge_plot_network,
+    huge_plot_sparsity,
+    huge_plot_graph_matrix,
+    huge_plot_network,
+    huge_plot,
 )
 import matplotlib.pyplot as plt
-
-s1 = huge_summary(fit)
-s2 = huge_select_summary(sel)
-print(s1)
-print(s2)
 
 fig, axes = plt.subplots(1, 2, figsize=(9, 4))
 huge_plot_sparsity(fit, ax=axes[0])
@@ -84,16 +77,19 @@ fig.tight_layout()
 # network visualization
 fig2, ax2 = plt.subplots(figsize=(4.5, 4.5))
 huge_plot_network(fit, index=-1, ax=ax2, layout="spring")
+
+# R huge.plot-compatible visualization
+huge_plot(sel.refit, epsflag=False)
 ```
 
-## Using custom lambda path
+## 4) Using custom lambda path
 
 ```python
 lam = np.logspace(0, -2, num=6)  # descending positive sequence
 fit = huge(x, method="mb", lambda_=lam, verbose=False)
 ```
 
-## Simulation + ROC + Inference
+## 5) Simulation + ROC + Inference
 
 ```python
 from pyhuge import huge_generator, huge_roc, huge_inference
@@ -114,4 +110,13 @@ inf = huge_inference(
 print("Type I error:", inf.error)
 ```
 
-For script-style walkthroughs, see `tutorials.md`.
+## 6) Try built-in stock dataset
+
+```python
+from pyhuge import huge_stockdata
+stock = huge_stockdata()
+print(stock.data.shape)
+print(stock.info.shape)
+```
+
+For runnable script walkthroughs, see [tutorials.md](tutorials.md).

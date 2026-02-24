@@ -1,6 +1,6 @@
 # Tutorials
 
-`pyhuge` ships runnable example scripts under `/Users/tourzhao/Desktop/huge-master/python-package/examples`.
+`pyhuge` ships runnable example scripts under `python-package/examples/`.
 
 ## Installation check
 
@@ -30,16 +30,16 @@ will be `True`.
 ## Typical local runtime command
 
 ```bash
-R_LIBS_USER=/Users/tourzhao/Desktop/huge-master/.Rlib \
-PYTHONPATH=/Users/tourzhao/Desktop/huge-master/python-package \
-/opt/homebrew/bin/python3 examples/run_huge_mb.py
+cd python-package
+R_LIBS_USER=/path/to/Rlib \
+python examples/run_huge_mb.py
 ```
 
 ## Optional e2e test run
 
 ```bash
 cd python-package
-export R_LIBS_USER=/Users/tourzhao/Desktop/huge-master/.Rlib
+export R_LIBS_USER=/path/to/Rlib
 export PYHUGE_REQUIRE_RUNTIME=1
 pytest tests/test_e2e_optional.py -rA
 ```

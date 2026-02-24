@@ -85,6 +85,15 @@ class HugeRocResult:
 
 
 @dataclass
+class HugeStockDataResult:
+    """Parsed output from R dataset `stockdata`."""
+
+    data: np.ndarray
+    info: np.ndarray
+    raw: Any = None
+
+
+@dataclass
 class HugeSummary:
     """Compact summary for HugeResult."""
 
@@ -130,7 +139,7 @@ def _r_env() -> dict[str, Any]:
 
     try:
         import rpy2.robjects as ro
-        from rpy2.robjects import default_converter, numpy2ri
+        from rpy2.robjects import conversion, default_converter, numpy2ri
         from rpy2.robjects.conversion import localconverter
         from rpy2.robjects.packages import PackageNotInstalledError, importr
     except ModuleNotFoundError as exc:
@@ -147,6 +156,7 @@ def _r_env() -> dict[str, Any]:
 
     _R_ENV = {
         "ro": ro,
+        "conversion": conversion,
         "default_converter": default_converter,
         "numpy2ri": numpy2ri,
         "localconverter": localconverter,
@@ -161,13 +171,13 @@ def _py2r(value: Any) -> Any:
     if value is None:
         return ro.NULL
     with env["localconverter"](env["default_converter"] + env["numpy2ri"].converter):
-        return ro.conversion.get_conversion().py2rpy(value)
+        return env["conversion"].get_conversion().py2rpy(value)
 
 
 def _r2py(value: Any) -> Any:
     env = _r_env()
     with env["localconverter"](env["default_converter"] + env["numpy2ri"].converter):
-        return env["ro"].conversion.get_conversion().rpy2py(value)
+        return env["conversion"].get_conversion().rpy2py(value)
 
 
 def _scalar(value: Any) -> Optional[float]:
@@ -755,6 +765,27 @@ def huge_roc(
     )
 
 
+def huge_stockdata() -> HugeStockDataResult:
+    """Load dataset ``stockdata`` from R package ``huge``."""
+
+    env = _r_env()
+    ro = env["ro"]
+    ro.r["data"]("stockdata", package="huge")
+    r_stock = ro.globalenv["stockdata"]
+    fields = _list_fields(r_stock)
+    info_dim = np.asarray(_r2py(ro.r["dim"](fields["info"])), dtype=int).reshape(-1)
+    info_flat = np.asarray(_r2py(fields["info"]))
+    if info_dim.size == 2 and info_flat.size == int(info_dim[0] * info_dim[1]):
+        info = info_flat.reshape((int(info_dim[0]), int(info_dim[1])), order="F")
+    else:
+        info = info_flat
+    return HugeStockDataResult(
+        data=np.asarray(_r2py(fields["data"]), dtype=float),
+        info=info,
+        raw=r_stock,
+    )
+
+
 def huge_summary(fit: HugeResult) -> HugeSummary:
     """Return a concise, Python-native summary of ``HugeResult``."""
 
@@ -952,3 +983,70 @@ def huge_plot_network(
     ax.set_title(title)
     ax.set_axis_off()
     return ax
+
+
+def huge_plot(
+    g: np.ndarray | sparse.spmatrix,
+    epsflag: bool = False,
+    graph_name: str = "default",
+    cur_num: int = 1,
+    location: Optional[str] = None,
+) -> Optional[str]:
+    """Run R ``huge.plot()`` for graph visualization.
+
+    Returns the output eps path when ``epsflag=True``; otherwise returns ``None``.
+    For headless environments, when ``epsflag=False`` this routes plotting through
+    a temporary PDF device and removes it afterwards.
+    """
+
+    g_dense = _to_dense_matrix(g, "g")
+    if g_dense.shape[0] != g_dense.shape[1]:
+        raise PyHugeError("`g` must be square.")
+    cur_num = _ensure_positive_int("cur_num", cur_num)
+    if not graph_name:
+        raise PyHugeError("`graph_name` must be a non-empty string.")
+    if location is not None and not os.path.isdir(location):
+        raise PyHugeError("`location` must be an existing directory.")
+
+    env = _r_env()
+    ro = env["ro"]
+
+    kwargs: dict[str, Any] = {
+        "G": _py2r(g_dense),
+        "epsflag": bool(epsflag),
+        "graph.name": str(graph_name),
+        "cur.num": int(cur_num),
+    }
+    if location is not None:
+        kwargs["location"] = str(location)
+
+    pdf_fd: Optional[int] = None
+    pdf_path: Optional[str] = None
+    try:
+        if not epsflag:
+            pdf_fd, pdf_path = tempfile.mkstemp(prefix="pyhuge_plot_", suffix=".pdf")
+            os.close(pdf_fd)
+            pdf_fd = None
+            ro.r["pdf"](pdf_path)
+        env["huge_pkg"].huge_plot(**kwargs)
+    finally:
+        if not epsflag:
+            try:
+                ro.r["dev.off"]()
+            except Exception:
+                pass
+            if pdf_path and os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                except OSError:
+                    pass
+            if pdf_fd is not None:
+                try:
+                    os.close(pdf_fd)
+                except OSError:
+                    pass
+
+    if not epsflag:
+        return None
+    out_dir = location if location is not None else str(np.asarray(_r2py(ro.r["tempdir"]()))[0])
+    return os.path.join(out_dir, f"{graph_name}{cur_num}.eps")
