@@ -417,3 +417,22 @@ def test_huge_inference_shape_mismatch_raises():
 def test_huge_roc_path_shape_mismatch_raises():
     with pytest.raises(core.PyHugeError, match="must have shape"):
         core.huge_roc([np.eye(3), np.eye(4)], np.eye(3), plot=False)
+
+
+def test_r_env_arch_mismatch_raises_early(monkeypatch):
+    monkeypatch.setattr(core, "_R_ENV", None)
+    monkeypatch.setattr(core, "_detect_arch_mismatch", lambda: ("x86_64", "arm64"))
+    with pytest.raises(core.PyHugeError, match="architectures do not match"):
+        core._r_env()
+
+
+def test_detect_arch_mismatch_returns_none_when_same(monkeypatch):
+    monkeypatch.setattr(core, "_python_arch", lambda: "arm64")
+    monkeypatch.setattr(core, "_r_arch", lambda: "arm64")
+    assert core._detect_arch_mismatch() is None
+
+
+def test_detect_arch_mismatch_returns_tuple_when_different(monkeypatch):
+    monkeypatch.setattr(core, "_python_arch", lambda: "x86_64")
+    monkeypatch.setattr(core, "_r_arch", lambda: "arm64")
+    assert core._detect_arch_mismatch() == ("x86_64", "arm64")

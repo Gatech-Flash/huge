@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import platform
+import shutil
+import subprocess
 import tempfile
 from typing import Any, Optional, Sequence
 
@@ -130,12 +133,80 @@ _ALLOWED_INFERENCE_TYPES = {"Gaussian", "Nonparanormal"}
 _ALLOWED_INFERENCE_METHODS = {"score", "wald"}
 
 
+def _normalize_arch(arch: Optional[str]) -> str:
+    if arch is None:
+        return ""
+    value = str(arch).strip().lower()
+    aliases = {
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "amd64": "x86_64",
+        "x64": "x86_64",
+        "x86_64": "x86_64",
+    }
+    return aliases.get(value, value)
+
+
+def _python_arch() -> str:
+    return _normalize_arch(platform.machine())
+
+
+def _r_arch() -> Optional[str]:
+    r_bin = shutil.which("R")
+    if r_bin is None:
+        return None
+
+    try:
+        proc = subprocess.run(
+            [r_bin, "--slave", "-e", "cat(R.version$arch)"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+
+    if proc.returncode != 0:
+        return None
+    out = (proc.stdout or proc.stderr).strip()
+    if not out:
+        return None
+    return _normalize_arch(out.splitlines()[0].strip())
+
+
+def _detect_arch_mismatch() -> Optional[tuple[str, str]]:
+    py_arch = _python_arch()
+    r_arch = _r_arch()
+    if py_arch and r_arch and py_arch != r_arch:
+        return py_arch, r_arch
+    return None
+
+
+def _arch_mismatch_message(py_arch: str, r_arch: str) -> str:
+    return (
+        "Python and R architectures do not match "
+        f"(Python={py_arch}, R={r_arch}). "
+        "rpy2 requires matching architectures. "
+        "Use a Python interpreter matching your R build "
+        "(for Apple Silicon R, prefer `/opt/homebrew/bin/python3`), "
+        "or install R matching your Python architecture. "
+        "Check with: "
+        "`python -c 'import platform; print(platform.machine())'` and "
+        "`R -q -e 'cat(R.version$arch, \"\\n\")'`."
+    )
+
+
 def _r_env() -> dict[str, Any]:
     """Lazily import rpy2 and R package `huge`."""
 
     global _R_ENV
     if _R_ENV is not None:
         return _R_ENV
+
+    if os.environ.get("PYHUGE_SKIP_ARCH_CHECK", "0") != "1":
+        mismatch = _detect_arch_mismatch()
+        if mismatch is not None:
+            raise PyHugeError(_arch_mismatch_message(*mismatch))
 
     try:
         import rpy2.robjects as ro
@@ -145,6 +216,14 @@ def _r_env() -> dict[str, Any]:
     except ModuleNotFoundError as exc:
         raise PyHugeError(
             'rpy2 is required. Install with `pip install "pyhuge[runtime]"`.'
+        ) from exc
+    except OSError as exc:
+        mismatch = _detect_arch_mismatch()
+        if mismatch is not None:
+            raise PyHugeError(_arch_mismatch_message(*mismatch)) from exc
+        raise PyHugeError(
+            "rpy2 failed to initialize R runtime. "
+            "Check R installation and Python/R architecture compatibility."
         ) from exc
 
     try:

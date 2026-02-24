@@ -73,6 +73,10 @@ incompatible architecture (have 'arm64', need 'x86_64')
 
 Cause: Python and R architectures differ.
 
+`pyhuge` now performs an early architecture check and raises a direct
+`PyHugeError` with this mismatch summary, so you can fix it before long
+`rpy2` tracebacks.
+
 Fix:
 
 ```bash
