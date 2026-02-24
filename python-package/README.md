@@ -15,6 +15,7 @@ High-dimensional Undirected Graph Estimation.
 - [What this package provides](#what-this-package-provides)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Apple Silicon (M1/M2/M3) Quick Fix](#apple-silicon-m1m2m3-quick-fix)
 - [Usage](#usage)
 - [Documentation and tutorials](#documentation-and-tutorials)
 - [Performance notes](#performance-notes)
@@ -99,6 +100,47 @@ pyhuge-doctor
 ```
 
 If `runtime=False`, verify `R_LIBS_USER`, architecture match, and `huge` visibility in R.
+
+## Apple Silicon (M1/M2/M3) Quick Fix
+
+If you see errors like:
+
+- `incompatible architecture (have 'arm64', need 'x86_64')`
+- `_R_BaseEnv` symbol errors from `rpy2`
+- `externally-managed-environment` when running `pip install`
+
+use this exact setup:
+
+```bash
+# 1) Use arm64 shell
+arch
+# if this prints x86_64:
+exec arch -arm64 zsh
+
+# 2) Create a virtual environment (avoid PEP 668 system Python restrictions)
+/opt/homebrew/bin/python3 -m venv ~/venvs/pyhuge-arm64
+source ~/venvs/pyhuge-arm64/bin/activate
+
+# 3) Install pyhuge runtime stack
+python -m pip install -U pip
+python -m pip install "pyhuge[runtime]"
+
+# 4) Install R package huge
+R -q -e 'install.packages(c("huge","Rcpp","RcppEigen","igraph"), repos="https://cloud.r-project.org")'
+
+# 5) Verify
+python -c "import pyhuge; print(pyhuge.test())"
+pyhuge-doctor
+```
+
+Architecture must match:
+
+```bash
+python -c 'import platform; print(platform.machine())'
+R -q -e 'cat(R.version$arch, "\n")'
+```
+
+Both should be `arm64` on Apple Silicon.
 
 ## Usage
 

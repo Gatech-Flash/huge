@@ -6,4 +6,4 @@ Version history is maintained in:
 
 Current release line:
 
-- `0.2.3`: beginner-first docs expansion, Rd example parity coverage, and install smoke CI.
+- `0.2.4`: Apple Silicon install guidance on PyPI README and early arch mismatch detection.

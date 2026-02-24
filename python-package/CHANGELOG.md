@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+- Add explicit Apple Silicon (M1/M2/M3) setup and troubleshooting section to PyPI README:
+  - `arm64` shell setup
+  - virtual environment workflow for PEP 668 environments
+  - architecture verification commands
+- Add early Python/R architecture mismatch detection in runtime bootstrap, with direct actionable `PyHugeError` guidance before deep `rpy2` traceback.
+
 ## 0.2.3
 
 - Add beginner-first documentation flow: Start Here, Beginner Workflow, and FAQ.
