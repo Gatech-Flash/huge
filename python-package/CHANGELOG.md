@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3
+
+- Add beginner-first documentation flow: Start Here, Beginner Workflow, and FAQ.
+- Rewrite installation/troubleshooting docs with copy-paste diagnostics and architecture checks.
+- Add Python wrappers `huge_plot` (R `huge.plot` equivalent) and `huge_stockdata` (built-in dataset loader).
+- Add strict Rd example parity tests covering all documented R examples (`huge`, `huge.select`, `huge.npn`, `huge.generator`, `huge.roc`, `huge.inference`, `huge.plot`, `stockdata`).
+- Improve matplotlib/font cache handling in tests and remove deprecated rpy2 conversion usage.
+- Add CI smoke workflow to validate beginner install path (`pip install pyhuge`) after release.
+
 ## 0.2.2
 
 - Make `rpy2` a runtime optional dependency (`pyhuge[runtime]`) so `pip install pyhuge` is beginner-friendly.

@@ -5,7 +5,7 @@
 From `python-package`:
 
 ```bash
-python scripts/bump_version.py 0.2.0
+python scripts/bump_version.py 0.2.3
 ```
 
 This updates:
@@ -27,8 +27,8 @@ This runs:
 
 ```bash
 git add pyproject.toml pyhuge/__init__.py CHANGELOG.md
-git commit -m "pyhuge: release 0.2.0"
-git tag pyhuge-v0.2.0
+git commit -m "pyhuge: release 0.2.3"
+git tag pyhuge-v0.2.3
 git push origin <branch> --tags
 ```
 
@@ -42,6 +42,15 @@ Workflow file:
 - `.github/workflows/python-package-release.yml`
 
 It builds wheel/sdist and publishes using PyPI trusted publishing.
+
+## 4.1 Post-release install smoke
+
+After publish succeeds, run:
+
+- `.github/workflows/python-pypi-smoke.yml`
+
+This workflow installs `pyhuge` from PyPI (`pip install pyhuge`) and runs a
+minimal import/runtime probe to validate beginner installation path.
 
 ## 5. Documentation website
 

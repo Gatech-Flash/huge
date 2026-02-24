@@ -67,7 +67,7 @@ __all__ = [
     "format_doctor_report",
 ]
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 
 def doctor(require_runtime: bool = False) -> dict:

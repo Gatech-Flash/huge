@@ -6,4 +6,4 @@ Version history is maintained in:
 
 Current release line:
 
-- `0.1.0`: initial public `pyhuge` wrapper with expanded plotting, docs, CI, release scripts, and optional R-runtime e2e coverage.
+- `0.2.3`: beginner-first docs expansion, Rd example parity coverage, and install smoke CI.
