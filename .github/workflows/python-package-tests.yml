@@ -9,6 +9,7 @@ on:
     paths:
       - "python-package/**"
       - ".github/workflows/python-package-tests.yml"
+  workflow_dispatch:
 
 jobs:
   unit:

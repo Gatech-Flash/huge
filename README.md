@@ -4,14 +4,18 @@
 
 <h4 align="center">General Package for High-Dimensional Undirected Graph Estimation and Inference (R + Python)</h4>
 
-___Huge___ (High-Dimensional Undirected Graph Estimation) is a general project for sparse graphical model estimation and inference in high dimensions. The core algorithm is implemented in C++ with RcppEigen support for portable high performance linear algebra.
+___Huge___ (High-Dimensional Undirected Graph Estimation) is a general project
+for sparse graphical model estimation and inference in high dimensions. The R
+package is backed by C++/RcppEigen and the Python package provides a native
+Python implementation with optional C++ acceleration.
 
 This repository provides two package variants:
 
 - R package: `huge` (native R interface, available on CRAN)
-- Python package: `pyhuge` (Python interface via `rpy2` bridge)
+- Python package: `pyhuge` (native Python package, available on PyPI)
 
-Both variants target the same modeling pipeline, including graph estimation, model selection, and inferential analysis.
+Both variants target the same modeling pipeline, including graph estimation,
+model selection, and inferential analysis.
 
 ## Package Variants
 
@@ -79,9 +83,8 @@ library(huge)
 
 ## Python Package (`pyhuge`)
 
-This repository now includes a Python wrapper package under `python-package/`.
-It exposes `huge` functionality to Python via `rpy2` while keeping the R/C++
-backend unchanged.
+This repository includes a native Python package under `python-package/`.
+`pyhuge` 0.3 does not require `rpy2` or an R runtime.
 
 ### Python package location
 
@@ -94,8 +97,8 @@ backend unchanged.
 ```bash
 pip install pyhuge
 pip install "pyhuge[runtime]"
-R -q -e 'install.packages(c("huge","Rcpp","RcppEigen","igraph"), repos="https://cloud.r-project.org")'
-pyhuge-doctor --require-runtime
+python -c "import pyhuge; print(pyhuge.test(require_runtime=True))"
+pyhuge-doctor
 ```
 
 Optional extras:
@@ -108,7 +111,7 @@ pip install "pyhuge[dev]"      # tests + docs + release tooling
 ### Python documentation website and CI
 
 - Docs site: <https://gatech-flash.github.io/huge/>
-- Python tests workflow: `.github/workflows/python-wrapper-tests.yml`
+- Python tests workflow: `.github/workflows/python-package-tests.yml`
 - Python docs workflow: `.github/workflows/python-package-docs.yml`
 - Python release workflow: `.github/workflows/python-package-release.yml`
 
