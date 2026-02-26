@@ -1,0 +1,84 @@
+"""Parity checks between pyhuge native outputs and R huge references."""
+
+from __future__ import annotations
+
+import importlib.util
+
+import numpy as np
+import pytest
+
+from pyhuge import huge, huge_select
+
+from pyhuge.parity import (
+    has_r_huge,
+    run_r_ct_default_reference,
+    run_r_ct_reference,
+    run_r_glasso_reference,
+)
+
+
+HAS_R_HUGE = has_r_huge()
+HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
+
+
+def _edge_counts(path) -> np.ndarray:
+    return np.asarray([np.count_nonzero(np.triu(m.toarray() != 0, 1)) for m in path], dtype=float)
+
+
+@pytest.mark.skipif(not HAS_R_HUGE, reason="requires local R with package huge")
+def test_parity_ct_path_and_stars_selection():
+    rng = np.random.default_rng(123)
+    x = rng.normal(size=(120, 20))
+    lam = np.linspace(0.6, 0.05, 8)
+
+    r_ref = run_r_ct_reference(x, lam, rep_num=6, stars_thresh=0.1, seed=123)
+
+    fit = huge(x, method="ct", lambda_=lam, verbose=False)
+    sel = huge_select(fit, criterion="stars", rep_num=6, stars_thresh=0.1, verbose=False)
+
+    # For CT thresholding, path parity should be very close under identical lambda path.
+    assert np.allclose(fit.lambda_path, r_ref["lambda"], rtol=0.0, atol=1e-12)
+    assert np.max(np.abs(fit.sparsity - r_ref["sparsity"])) <= 1e-10
+    assert np.array_equal(_edge_counts(fit.path), r_ref["edges"])
+
+    # Selection rules are not bitwise-identical across implementations; allow small index drift.
+    assert abs((sel.opt_index or 1) - int(r_ref["opt_index"])) <= 2
+
+
+@pytest.mark.skipif(not HAS_R_HUGE, reason="requires local R with package huge")
+def test_parity_ct_default_rank_path():
+    rng = np.random.default_rng(7)
+    x = rng.normal(size=(150, 24))
+
+    r_ref = run_r_ct_default_reference(x, nlambda=10, lambda_min_ratio=0.05)
+    fit = huge(x, method="ct", nlambda=10, lambda_min_ratio=0.05, verbose=False)
+
+    path_py = np.stack([m.toarray() for m in fit.path], axis=0)
+
+    assert np.allclose(fit.lambda_path, r_ref["lambda"], rtol=0.0, atol=1e-12)
+    assert np.allclose(fit.sparsity, r_ref["sparsity"], rtol=0.0, atol=1e-12)
+    assert np.array_equal(path_py != 0, r_ref["path"] != 0)
+
+
+@pytest.mark.skipif(not HAS_R_HUGE, reason="requires local R with package huge")
+@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn for native glasso")
+def test_parity_glasso_path_and_ebic_selection():
+    rng = np.random.default_rng(321)
+    x = rng.normal(size=(120, 20))
+    lam = np.geomspace(0.5, 0.05, 8)
+
+    r_ref = run_r_glasso_reference(x, lam)
+
+    fit = huge(x, method="glasso", lambda_=lam, verbose=False)
+    sel = huge_select(fit, criterion="ebic", verbose=False)
+
+    assert np.allclose(fit.lambda_path, r_ref["lambda"], rtol=0.0, atol=1e-12)
+
+    max_edges = x.shape[1] * (x.shape[1] - 1) / 2.0
+    edge_gap = np.mean(np.abs(_edge_counts(fit.path) - r_ref["edges"])) / max_edges
+    sparsity_gap = float(np.mean(np.abs(fit.sparsity - r_ref["sparsity"])))
+
+    # Glasso backends differ (R huge vs sklearn solver); enforce coarse parity only.
+    assert edge_gap <= 0.25
+    assert sparsity_gap <= 0.25
+    assert abs((sel.opt_index or 1) - int(r_ref["opt_index"])) <= 4

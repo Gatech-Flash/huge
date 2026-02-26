@@ -1,0 +1,76 @@
+name: python-package-v03-tests
+
+on:
+  push:
+    paths:
+      - "python-package-v0.3/**"
+      - ".github/workflows/python-package-v03-tests.yml"
+  pull_request:
+    paths:
+      - "python-package-v0.3/**"
+      - ".github/workflows/python-package-v03-tests.yml"
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./python-package-v0.3[test,viz,runtime]"
+      - name: Run unit tests
+        run: |
+          cd python-package-v0.3
+          pytest tests/test_public_api.py tests/test_core_unit.py tests/test_runtime_errors.py tests/test_native_smoke.py
+
+  e2e-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install e2e deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./python-package-v0.3[test,viz,runtime]"
+      - name: Run e2e + Rd parity tests
+        run: |
+          cd python-package-v0.3
+          pytest -q tests/test_e2e_optional.py tests/test_rd_examples_parity.py -rA
+
+  parity-r:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: r-lib/actions/setup-r@v2
+      - name: Install R deps (system packages)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y r-cran-igraph r-cran-rcpp r-cran-rcppeigen
+      - name: Install local huge package into isolated R library
+        env:
+          R_LIBS_USER: ${{ github.workspace }}/.Rlib
+        run: |
+          mkdir -p "${R_LIBS_USER}"
+          R CMD INSTALL "${GITHUB_WORKSPACE}"
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./python-package-v0.3[test,viz,runtime]"
+      - name: Run native-vs-R parity tests
+        env:
+          R_LIBS_USER: ${{ github.workspace }}/.Rlib
+        run: |
+          cd python-package-v0.3
+          pytest -q tests/test_native_vs_r_parity.py -rA

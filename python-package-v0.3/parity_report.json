@@ -1,0 +1,30 @@
+{
+  "config": {
+    "seed": 123,
+    "n": 120,
+    "d": 20
+  },
+  "environment": {
+    "has_r_huge": true,
+    "has_sklearn": true
+  },
+  "ct": {
+    "lambda_max_abs": 4.440892098500626e-16,
+    "sparsity_max_abs": 4.440892098500626e-16,
+    "edge_mean_abs": 0.0,
+    "edge_mean_abs_norm": 0.0,
+    "opt_index_native": 5,
+    "opt_index_r": 5,
+    "opt_lambda_native": 0.28571428571428575,
+    "opt_lambda_r": 0.285714285714286
+  },
+  "glasso": {
+    "lambda_max_abs": 3.885780586188048e-16,
+    "sparsity_mean_abs": 1.2750217548429532e-16,
+    "edge_mean_abs_norm": 0.0,
+    "opt_index_native": 1,
+    "opt_index_r": 1,
+    "opt_lambda_native": 0.5,
+    "opt_lambda_r": 0.5
+  }
+}
