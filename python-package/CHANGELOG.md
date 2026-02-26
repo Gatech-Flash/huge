@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Made C++ acceleration build optional at install time; falls back to pure Python if native build fails.
+- Switched release workflow to publish source distributions (`sdist`) to avoid invalid non-manylinux wheel uploads.
+- Kept runtime API behavior unchanged (`pyhuge.test()`, core estimators, selection, plotting).
+
+
 ## 0.3.1
 
 - Renamed the native package tree to `python-package/` and removed legacy `python-package-v0.3/` references.

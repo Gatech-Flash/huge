@@ -74,6 +74,9 @@ python -c "import pyhuge; print(pyhuge.test())"
 pyhuge-doctor
 ```
 
+If native C++ acceleration cannot be built on your machine, `pyhuge` falls back
+to pure Python automatically.
+
 ## Usage
 
 ```python
