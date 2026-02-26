@@ -1,12 +1,7 @@
-# pyhuge Python Package
+# pyhuge Python Package (0.3 Native Line)
 
-[![Python wrapper tests](https://github.com/Gatech-Flash/huge/actions/workflows/python-wrapper-tests.yml/badge.svg)](https://github.com/Gatech-Flash/huge/actions/workflows/python-wrapper-tests.yml)
-[![Python docs](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-docs.yml/badge.svg)](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-docs.yml)
-[![Python package release](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-release.yml/badge.svg)](https://github.com/Gatech-Flash/huge/actions/workflows/python-package-release.yml)
-
-`pyhuge` is the Python wrapper for the
-[`huge`](https://cran.r-project.org/package=huge) package:
-High-dimensional Undirected Graph Estimation.
+`pyhuge` 0.3 is the native Python line for high-dimensional undirected graph
+estimation and inference workflows inspired by `huge`.
 
 ## Table of contents
 
@@ -15,145 +10,82 @@ High-dimensional Undirected Graph Estimation.
 - [What this package provides](#what-this-package-provides)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Apple Silicon (M1/M2/M3) Quick Fix](#apple-silicon-m1m2m3-quick-fix)
 - [Usage](#usage)
-- [Documentation and tutorials](#documentation-and-tutorials)
-- [Performance notes](#performance-notes)
-- [Implemented APIs](#implemented-apis)
-- [For developer](#for-developer)
+- [Documentation](#documentation)
+- [Developer workflow](#developer-workflow)
 - [Citation](#citation)
-- [References](#references)
 
 ## Background
 
-`huge` is widely used for sparse undirected graphical model estimation in high dimensions.
-`pyhuge` keeps the original R/C++ backend and exposes a Python API via `rpy2` so Python users can:
-
-- call the same core methods (`mb`, `glasso`, `ct`, `tiger`);
-- run model selection (`ric`, `stars`, `ebic`);
-- access simulation, ROC, and inference helpers;
-- work with `numpy` and `scipy.sparse` objects directly.
+Compared with the earlier `rpy2`-bridge line, `pyhuge` 0.3 runs natively in
+Python and does not require an R runtime.
 
 ## Directory structure
 
-The Python package directory is organized as:
-
-- `pyhuge/`: Python wrapper source code
-- `tests/`: unit/runtime/e2e tests
+- `pyhuge/`: package source code
+- `pyhuge/data/`: packaged datasets (`stockdata.npz`)
+- `cpp/`: optional pybind11 acceleration kernels
+- `tests/`: unit/e2e/parity tests
 - `examples/`: runnable scripts
 - `docs/`: MkDocs documentation pages
-- `scripts/`: release and docs build scripts
+- `scripts/`: release and docs helper scripts
 
 ## What this package provides
 
-- Thin and stable bridge to mature `huge` backend.
-- Argument validation with explicit `PyHugeError` messages.
-- Typed result objects.
-- Plot helpers including node-edge network visualization (`huge_plot_network`).
-- Tests, documentation website workflow, and release automation scripts.
+- Core estimators: `huge`, `huge_mb`, `huge_glasso`, `huge_ct`, `huge_tiger`
+- Model selection: `huge_select` (`ric`, `stars`, `ebic`)
+- Data transforms and utilities: `huge_npn`, `huge_generator`, `huge_roc`, `huge_inference`
+- Plotting helpers: `huge_plot_sparsity`, `huge_plot_roc`, `huge_plot_graph_matrix`, `huge_plot_network`, `huge_plot`
+- Dataset helper: `huge_stockdata`
+- Diagnostics: `pyhuge.test()`, `pyhuge-doctor`
 
 ## Requirements
 
 - Python `>=3.9`
-- Runtime mode only: R installed and available in PATH
-- Runtime mode only: R package `huge` installed (with `Rcpp`, `RcppEigen`, `igraph`, etc.)
-- Runtime mode only: Python and R architecture must match (both `arm64` or both `x86_64`)
+- Runtime packages: `numpy`, `scipy`, `scikit-learn`
+
+Optional:
+
+- plotting: `matplotlib`, `networkx`
+- docs: `mkdocs`, `mkdocs-material`
 
 ## Installation
 
-Install from PyPI (recommended):
+From source:
 
 ```bash
-pip install pyhuge
-pip install "pyhuge[runtime]"
-R -q -e 'install.packages(c("huge","Rcpp","RcppEigen","igraph"), repos="https://cloud.r-project.org")'
-pyhuge-doctor --require-runtime
-```
-
-Install from source:
-
-```bash
-git clone https://github.com/Gatech-Flash/huge.git
-cd huge/python-package
-pip install -e .
+cd python-package
 pip install -e ".[runtime]"
-```
-
-Install directly from GitHub:
-
-```bash
-pip install "git+https://github.com/Gatech-Flash/huge.git#subdirectory=python-package"
 ```
 
 Optional extras:
 
 ```bash
-pip install "pyhuge[viz]"      # matplotlib + networkx
-pip install "pyhuge[runtime]"  # rpy2 bridge (required for model fitting)
-pip install "pyhuge[release]"  # build + twine
+pip install -e ".[viz]"
+pip install -e ".[test]"
+pip install -e ".[docs]"
+pip install -e ".[dev]"
 ```
 
 Runtime check:
 
 ```bash
-pyhuge-doctor
-```
-
-If `runtime=False`, verify `R_LIBS_USER`, architecture match, and `huge` visibility in R.
-
-## Apple Silicon (M1/M2/M3) Quick Fix
-
-If you see errors like:
-
-- `incompatible architecture (have 'arm64', need 'x86_64')`
-- `_R_BaseEnv` symbol errors from `rpy2`
-- `externally-managed-environment` when running `pip install`
-
-use this exact setup:
-
-```bash
-# 1) Use arm64 shell
-arch
-# if this prints x86_64:
-exec arch -arm64 zsh
-
-# 2) Create a virtual environment (avoid PEP 668 system Python restrictions)
-/opt/homebrew/bin/python3 -m venv ~/venvs/pyhuge-arm64
-source ~/venvs/pyhuge-arm64/bin/activate
-
-# 3) Install pyhuge runtime stack
-python -m pip install -U pip
-python -m pip install "pyhuge[runtime]"
-
-# 4) Install R package huge
-R -q -e 'install.packages(c("huge","Rcpp","RcppEigen","igraph"), repos="https://cloud.r-project.org")'
-
-# 5) Verify
 python -c "import pyhuge; print(pyhuge.test())"
 pyhuge-doctor
 ```
-
-Architecture must match:
-
-```bash
-python -c 'import platform; print(platform.machine())'
-R -q -e 'cat(R.version$arch, "\n")'
-```
-
-Both should be `arm64` on Apple Silicon.
 
 ## Usage
 
 ```python
 import numpy as np
-from pyhuge import huge, huge_npn, huge_select
+from pyhuge import huge, huge_select
 
 rng = np.random.default_rng(1)
 x = rng.normal(size=(120, 30))
-x_npn = huge_npn(x, npn_func="shrinkage", verbose=False)
 
-fit = huge(x_npn, method="mb", nlambda=8, verbose=False)
+fit = huge(x, method="mb", nlambda=8, verbose=False)
 sel = huge_select(fit, criterion="ric", verbose=False)
+
 print(fit.method, len(fit.path), sel.opt_lambda, sel.opt_sparsity)
 ```
 
@@ -168,79 +100,31 @@ huge_plot_network(fit, index=-1, ax=ax, layout="spring")
 plt.show()
 ```
 
-## Documentation and tutorials
+## Documentation
 
-- Website: <https://gatech-flash.github.io/huge/>
 - Docs source: `python-package/docs`
-- Function manual directory: `python-package/docs/man` (R `man/`-style layout)
-- Tutorial scripts: `python-package/examples`
+- Function manual pages: `python-package/docs/man`
 
-Build docs locally:
-
-```bash
-cd python-package
-mkdocs serve
-```
-
-Run tutorials/examples:
+Build locally:
 
 ```bash
 cd python-package
-python examples/run_huge_mb.py
-python examples/run_summary_and_plot.py
-python examples/run_network_plot.py
-```
-
-If you use custom R library path:
-
-```bash
-R_LIBS_USER=/Users/tourzhao/Desktop/huge-master/.Rlib \
-python examples/run_huge_mb.py
-```
-
-## Performance notes
-
-`pyhuge` runtime is dominated by R backend solve time for medium/large problems.
-For many tiny repeated calls, Python-R bridge overhead can matter.
-Benchmark backend and end-to-end workflows separately when tuning performance.
-
-## Implemented APIs
-
-- `huge`, `huge_mb`, `huge_glasso`, `huge_ct`, `huge_tiger`
-- `huge_select`, `huge_npn`
-- `huge_generator`, `huge_inference`, `huge_roc`
-- `huge_summary`, `huge_select_summary`
-- `huge_plot_sparsity`, `huge_plot_roc`, `huge_plot_graph_matrix`, `huge_plot_network`
-- `test`, `doctor`, `format_doctor_report`
-
-## For developer
-
-```bash
-cd python-package
-pip install -e ".[dev]"
-pytest
 mkdocs build --strict
-bash scripts/build_docs.sh
-bash scripts/build_dist.sh
 ```
 
-Optional e2e run with local R runtime:
+## Developer workflow
 
 ```bash
-export R_LIBS_USER=/Users/tourzhao/Desktop/huge-master/.Rlib
-export PYHUGE_REQUIRE_RUNTIME=1
-pytest tests/test_e2e_optional.py -rA
+cd python-package
+pytest
+bash scripts/build_dist.sh
+python scripts/bump_version.py 0.3.1
+bash scripts/release.sh 0.3.1
 ```
-
-Workflows:
-
-- `.github/workflows/python-wrapper-tests.yml`
-- `.github/workflows/python-package-docs.yml`
-- `.github/workflows/python-package-release.yml`
 
 ## Citation
 
-If you use `huge` / `pyhuge` in research, cite:
+If you use `huge`/`pyhuge` in research, cite:
 
 ```bibtex
 @article{zhao2012huge,
@@ -252,11 +136,3 @@ If you use `huge` / `pyhuge` in research, cite:
   year    = {2012}
 }
 ```
-
-## References
-
-- T. Zhao, H. Liu, K. Roeder, J. Lafferty, and L. Wasserman,
-  *The huge Package for High-dimensional Undirected Graph Estimation in R*,
-  JMLR 13:1059-1062, 2012.
-- Huge CRAN page: <https://cran.r-project.org/package=huge>
-- Repository: <https://github.com/Gatech-Flash/huge>

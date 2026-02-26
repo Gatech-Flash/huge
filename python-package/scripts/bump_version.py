@@ -17,7 +17,7 @@ CHANGELOG = ROOT / "CHANGELOG.md"
 
 def _validate_version(version: str) -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise ValueError("Version must follow MAJOR.MINOR.PATCH (e.g. 0.2.0).")
+        raise ValueError("Version must follow MAJOR.MINOR.PATCH (e.g. 0.3.1).")
 
 
 def _replace_regex(path: pathlib.Path, pattern: str, repl: str) -> bool:

@@ -1,5 +1,5 @@
 site_name: pyhuge
-site_description: Python wrapper for the R package huge
+site_description: Native Python package for high-dimensional graph estimation
 site_url: https://gatech-flash.github.io/huge/
 repo_url: https://github.com/Gatech-Flash/huge
 repo_name: Gatech-Flash/huge
@@ -36,7 +36,6 @@ nav:
       - huge_plot_network: man/huge_plot_network.md
       - huge_plot: man/huge_plot.md
       - huge_stockdata: man/huge_stockdata.md
-      - doctor: man/doctor.md
       - test: man/test.md
   - Performance: performance.md
   - Design: design.md

@@ -15,17 +15,17 @@ huge_inference(
 
 ## Description
 
-Edge inference mapped to R `huge.inference()`.
+Native edge-wise inference helper using a partial-correlation z-test
+approximation.
 
 ## Key arguments
 
-- `data`: 2D matrix
-- `t`: estimated precision matrix (square)
-- `adj`: target adjacency matrix (square)
-- `alpha`: significance level in `(0, 1]`
-- `type_`: one of `"Gaussian"`, `"nonparanormal"`
-- `method`: one of `"score"`, `"wald"`
+- `data`: sample matrix (`n x d`)
+- `t`: precision-like matrix (`d x d`)
+- `adj`: reference adjacency (`d x d`)
+- `type_`: `"Gaussian"` or `"Nonparanormal"`
+- `method`: `"score"` or `"wald"` (API compatibility)
 
 ## Returns
 
-`HugeInferenceResult` with p-value matrix `p` and estimated type-I error.
+`HugeInferenceResult` with transformed `data`, p-value matrix `p`, and `error`.

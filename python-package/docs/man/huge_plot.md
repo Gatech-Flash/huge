@@ -14,14 +14,14 @@ huge_plot(
 
 ## Description
 
-Python wrapper for R `huge.plot()` style graph visualization.
+Native huge-style graph visualization helper.
 
 ## Key arguments
 
 - `g`: square adjacency matrix
 - `epsflag`: if `True`, save EPS file
-- `graph_name`: EPS filename prefix
-- `cur_num`: number suffix in output name
+- `graph_name`: filename prefix
+- `cur_num`: positive integer suffix
 - `location`: output directory when `epsflag=True`
 
 ## Returns

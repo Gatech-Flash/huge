@@ -8,18 +8,20 @@ test(require_runtime=False) -> dict
 
 ## Description
 
-Runtime readiness probe for `pyhuge`.
+Native runtime readiness probe for `pyhuge`.
 
 ## Returns
 
-Dictionary with keys:
+Dictionary with keys including:
 
 - `python_import`
-- `rpy2`
+- `numpy`
+- `scipy`
+- `sklearn`
+- `native_extension`
 - `runtime`
+- `rpy2` (compatibility field)
 
 ## Notes
 
-- If `require_runtime=True`, raises `PyHugeError` when runtime is unavailable.
-- Useful as a first diagnostic step after installation.
-- For richer diagnostics and suggested commands, use `doctor` / `pyhuge-doctor`.
+- If `require_runtime=True`, raises `PyHugeError` when required deps are missing.

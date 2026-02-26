@@ -35,5 +35,4 @@ one page per public function with usage and argument notes.
 
 ## Runtime helper
 
-- [`doctor`](doctor.md)
 - [`test`](test.md)

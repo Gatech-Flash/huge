@@ -5,10 +5,11 @@
 From `python-package`:
 
 ```bash
-python scripts/bump_version.py 0.2.3
+python scripts/bump_version.py 0.3.1
 ```
 
 This updates:
+
 - `pyproject.toml`
 - `pyhuge/__init__.py`
 - `CHANGELOG.md` (adds heading if missing)
@@ -20,6 +21,7 @@ bash scripts/build_dist.sh
 ```
 
 This runs:
+
 - `python -m build`
 - `python -m twine check dist/*`
 
@@ -27,36 +29,27 @@ This runs:
 
 ```bash
 git add pyproject.toml pyhuge/__init__.py CHANGELOG.md
-git commit -m "pyhuge: release 0.2.3"
-git tag pyhuge-v0.2.3
+git commit -m "pyhuge: release 0.3.1"
+git tag pyhuge-v0.3.1
 git push origin <branch> --tags
 ```
 
 ## 4. Publish via CI
 
-Publishing workflow is triggered by tag pattern:
+Publishing workflow tag pattern:
 
 - `pyhuge-v*`
 
-Workflow file:
+Recommended dedicated workflow file for this package directory:
+
 - `.github/workflows/python-package-release.yml`
 
-It builds wheel/sdist and publishes using PyPI trusted publishing.
+## 5. Docs website
 
-## 4.1 Post-release install smoke
+Docs source:
 
-After publish succeeds, run:
+- `python-package/mkdocs.yml`
 
-- `.github/workflows/python-pypi-smoke.yml`
-
-This workflow installs `pyhuge` from PyPI (`pip install pyhuge`) and runs a
-minimal import/runtime probe to validate beginner installation path.
-
-## 5. Documentation website
-
-Docs build/deploy workflow:
+Recommended dedicated workflow file:
 
 - `.github/workflows/python-package-docs.yml`
-- local docs build script: `scripts/build_docs.sh`
-
-On push to `master`, it builds `python-package/mkdocs.yml` and deploys to GitHub Pages.

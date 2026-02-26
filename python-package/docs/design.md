@@ -1,36 +1,36 @@
 # Design and Roadmap
 
-## Why this design
+## Current architecture (0.3)
 
-`huge` currently exposes its core through R interfaces (`Rcpp`/`.Call`), not a
-stable C ABI suitable for direct `ctypes` loading from Python.
-
-To ship a usable Python interface quickly and safely, this version uses:
-
-- `rpy2` for Python<->R bridge
-- existing R package APIs as the execution backend
-- Python-side conversion of outputs to NumPy/SciPy objects
+- Native Python core (`pyhuge/core.py`)
+- NumPy/SciPy data model
+- scikit-learn-backed solvers for MB/glasso/tiger approximation path
+- Optional pybind11 C++ extension (`pyhuge._native_core`) for hot kernels
 
 ## Data flow
 
-1. Python input matrix (`numpy.ndarray`)
-2. Converted to R object by `rpy2`
-3. R `huge` package computes model path / selection
-4. Returned R list is parsed into Python dataclasses
-5. Matrix outputs converted to sparse/dense SciPy/NumPy formats
+1. User inputs NumPy/SciPy matrices
+2. Python validation and preprocessing
+3. Method-specific native solver
+4. Results converted to typed dataclasses
+5. Plot and summary helpers consume same dataclasses
 
-## Compatibility notes
+## Compatibility goals
 
-- Runtime requires local R + installed R package `huge`.
-- Python and R environments must be mutually visible in current shell/session.
+- Keep public API names aligned with earlier `pyhuge` wrapper and R `huge`
+- Keep result fields stable where possible (`lambda_path`, `path`, `opt_lambda`, etc.)
+- Preserve one-page-per-function manual docs under `docs/man/`
 
-## Roadmap to a native Python backend
+## Known approximation boundaries
 
-If the goal is picasso-style native wrapping (no R runtime), next steps are:
+- `tiger` currently uses a native approximation path and is not bitwise
+  equivalent to R TIGER internals.
+- Selection/inference implementations target practical parity, not strict
+  numerical identity with R code paths.
 
-1. Extract stable C/C++ API from `huge` core kernels
-2. Build shared library target (`libhuge`)
-3. Provide Python bindings (`pybind11` or `cffi`/`ctypes`)
-4. Keep R wrapper as one frontend over the same core library
+## Roadmap
 
-This is a larger refactor and should be done as a dedicated phase.
+1. Strengthen numerical parity tests against R outputs (function-by-function)
+2. Add optional compiled kernels for more hotspots
+3. Extend solver backends for tighter TIGER parity
+4. Keep Python and R user docs aligned on semantics and examples

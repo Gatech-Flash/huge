@@ -1,53 +1,58 @@
 # FAQ
 
-## Is `pyhuge` pure Python?
+## Is `pyhuge` 0.3 pure Python?
 
-No. `pyhuge` calls the R package `huge` using `rpy2`.
-You must have both Python and R set up.
+Yes. `pyhuge` 0.3 is native Python and does not require `rpy2`.
 
-## I installed `pyhuge` but `runtime=False` in `pyhuge.test()`
+## `runtime=False` in `pyhuge.test()` means what?
 
-Usually one of these is missing:
+Usually at least one core dependency is missing:
 
-- R is not installed or not in `PATH`
-- R package `huge` is not installed in the active R library path
-- Python architecture and R architecture mismatch (`arm64` vs `x86_64`)
+- `numpy`
+- `scipy`
+- `scikit-learn`
 
-See [Troubleshooting](troubleshooting.md).
+Install with:
 
-## Which method should beginners use first?
+```bash
+pip install "pyhuge[runtime]"
+```
 
-Use `method="mb"` first for a stable starting point.
-Then compare against `method="glasso"` if needed.
+## Which method should I start with?
 
-## What is the difference between `fit.path` and `sel.refit`?
+Use `method="mb"` first. Then compare with `method="glasso"`.
 
-- `fit.path`: all graphs across regularization levels
-- `sel.refit`: the single graph selected by a criterion (`ric`, `stars`, `ebic`)
+## Difference between `fit.path` and `sel.refit`?
+
+- `fit.path`: full path of estimated graphs
+- `sel.refit`: single selected graph under criterion (`ric`, `stars`, `ebic`)
 
 ## Which selection criterion should I use?
 
 - `ric`: fast and simple
-- `stars`: more stability-focused but slower
-- `ebic`: common with glasso workflows
-
-Use `ebic` only when estimator method is `glasso`.
+- `stars`: stability-focused, slower
+- `ebic`: common for glasso
 
 ## Why is plotting failing?
 
-- For `huge_plot_network`, install `networkx` and `matplotlib`
-- In headless environments, set:
+Install visualization deps:
+
+```bash
+pip install "pyhuge[viz]"
+```
+
+In headless environments:
 
 ```bash
 export MPLBACKEND=Agg
 ```
 
-## Can I use covariance/correlation matrix as input?
+## Can input be covariance/correlation matrix?
 
-Yes. `huge(...)` accepts either data matrix (`n x d`) or covariance/correlation
-matrix (`d x d`). The wrapper follows R `huge` behavior.
+Yes. For `ct` and `glasso`, `huge(...)` accepts square covariance/correlation input.
+For `mb` and `tiger`, use raw data matrix (`n x d`).
 
-## Is there a stock dataset I can try quickly?
+## Is there a built-in dataset?
 
 Yes:
 
@@ -60,4 +65,4 @@ print(stock.data.shape, stock.info.shape)
 ## Where are full function docs?
 
 - API overview: [api.md](api.md)
-- One-page-per-function manual: [man/index.md](man/index.md)
+- One-page function manual: [man/index.md](man/index.md)

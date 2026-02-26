@@ -1,26 +1,51 @@
 # Performance Notes
 
-`pyhuge` is an R-bridge wrapper (`Python -> rpy2 -> R huge`), so total runtime is:
+`pyhuge` 0.3 runtime is dominated by numerical solver cost.
 
-- R backend solve time (dominant for medium/large problems)
-- Python/R bridge overhead (visible for very small repeated calls)
+## Practical guidance
 
-## Recommended benchmarking method
+- Use `ct` for fast threshold-style path baselines.
+- Use `mb` or `glasso` when selection quality matters more than raw speed.
+- `stars` is slower than `ric`/`ebic` because it resamples repeatedly.
+- Reuse transformed data from `huge_npn(...)` when running multiple methods.
 
-1. Benchmark `huge` directly in R for backend-only performance.
-2. Benchmark `pyhuge` end-to-end for user-facing Python workflow time.
-3. Compare both to estimate bridge overhead.
+## Optional acceleration
 
-## Practical tips
+`pyhuge._native_core` accelerates selected kernels (e.g., threshold path/sparsity).
 
-- Batch work when possible rather than many tiny calls.
-- Reuse transformed data (`huge_npn`) if running multiple methods.
-- Use method wrappers (`huge_mb`, `huge_glasso`, `huge_ct`, `huge_tiger`) to keep scripts simple.
-- In CI/headless plotting, set `MPLBACKEND=Agg`.
+Check availability:
 
-## Smoke benchmark command pattern
+```python
+import pyhuge
+print(pyhuge.test()["native_extension"])
+```
+
+## Benchmark pattern
+
+```python
+import time
+import numpy as np
+from pyhuge import huge
+
+x = np.random.default_rng(0).normal(size=(300, 100))
+t0 = time.perf_counter()
+fit = huge(x, method="mb", nlambda=10, verbose=False)
+print("sec", time.perf_counter() - t0, "path", len(fit.path))
+```
+
+## Native vs R parity report
+
+A dedicated script produces reproducible parity metrics against local R `huge`
+(when available):
 
 ```bash
 cd python-package
-python -m pytest -q tests/test_e2e_optional.py -rA
+python scripts/r_parity_report.py --out parity_report.json
 ```
+
+Current behavior:
+
+- `ct + stars` parity is evaluated by default.
+- `glasso + ebic` parity is included when `scikit-learn` is installed.
+
+Use the JSON output to track drift after solver or selection changes.

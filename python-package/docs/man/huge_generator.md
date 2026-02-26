@@ -13,19 +13,21 @@ huge_generator(
     prob=None,
     vis=False,
     verbose=True,
+    random_state=None,
 ) -> HugeGeneratorResult
 ```
 
 ## Description
 
-Synthetic data generator mapped to R `huge.generator()`.
+Native synthetic data generator for huge-style graph models.
 
 ## Key arguments
 
-- `graph`: one of `"random"`, `"hub"`, `"cluster"`, `"band"`, `"scale-free"`
-- `n`, `d`: sample size and feature count
-- `v`, `u`, `g`, `prob`: graph-specific options
+- `graph`: `"random"`, `"hub"`, `"cluster"`, `"band"`, `"scale-free"`
+- `g`: group/bandwidth style parameter depending on graph type
+- `prob`: edge probability for random/cluster settings
 
 ## Returns
 
-`HugeGeneratorResult` containing `data`, covariance/precision matrices, graph `theta`, and `sparsity`.
+`HugeGeneratorResult` with `data`, `sigma`, `omega`, `sigmahat`, `theta`,
+`sparsity`, and `graph_type`.

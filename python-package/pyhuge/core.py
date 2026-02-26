@@ -1,33 +1,34 @@
-"""Core API for Python-to-R wrapper of package huge."""
+"""Native pyhuge 0.3 core implementation (no rpy2 dependency)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
-import platform
-import shutil
-import subprocess
-import tempfile
+import math
+from pathlib import Path
 from typing import Any, Optional, Sequence
+import warnings
+
+from importlib import resources
 
 import numpy as np
-from scipy import sparse
+from scipy import sparse, stats
 
 
 class PyHugeError(RuntimeError):
-    """Raised when pyhuge cannot call the underlying R package."""
+    """Raised when pyhuge encounters invalid inputs or backend failures."""
 
 
 @dataclass
 class HugeResult:
-    """Parsed output from R `huge()`."""
+    """Result from native ``huge()``."""
 
     method: str
     lambda_path: np.ndarray
     sparsity: np.ndarray
-    path: list[sparse.spmatrix]
+    path: list[sparse.csc_matrix]
     cov_input: bool
     data: np.ndarray
+    sym: str = "or"
     df: Optional[np.ndarray] = None
     loglik: Optional[np.ndarray] = None
     icov: Optional[list[np.ndarray]] = None
@@ -38,12 +39,12 @@ class HugeResult:
 
 @dataclass
 class HugeSelectResult:
-    """Parsed output from R `huge.select()`."""
+    """Result from native ``huge_select()``."""
 
     criterion: str
     opt_lambda: float
     opt_sparsity: float
-    refit: sparse.spmatrix
+    refit: sparse.csc_matrix
     opt_index: Optional[int] = None
     variability: Optional[np.ndarray] = None
     ebic_score: Optional[np.ndarray] = None
@@ -54,13 +55,13 @@ class HugeSelectResult:
 
 @dataclass
 class HugeGeneratorResult:
-    """Parsed output from R `huge.generator()`."""
+    """Result from native ``huge_generator()``."""
 
     data: np.ndarray
     sigma: np.ndarray
     omega: np.ndarray
     sigmahat: np.ndarray
-    theta: sparse.spmatrix
+    theta: sparse.csc_matrix
     sparsity: float
     graph_type: str
     raw: Any = None
@@ -68,7 +69,7 @@ class HugeGeneratorResult:
 
 @dataclass
 class HugeInferenceResult:
-    """Parsed output from R `huge.inference()`."""
+    """Result from native ``huge_inference()``."""
 
     data: np.ndarray
     p: np.ndarray
@@ -78,7 +79,7 @@ class HugeInferenceResult:
 
 @dataclass
 class HugeRocResult:
-    """Parsed output from R `huge.roc()`."""
+    """Result from native ``huge_roc()``."""
 
     f1: np.ndarray
     tp: np.ndarray
@@ -89,7 +90,7 @@ class HugeRocResult:
 
 @dataclass
 class HugeStockDataResult:
-    """Parsed output from R dataset `stockdata`."""
+    """Built-in stock dataset result."""
 
     data: np.ndarray
     info: np.ndarray
@@ -123,7 +124,6 @@ class HugeSelectSummary:
     has_opt_cov: bool
 
 
-_R_ENV: Optional[dict[str, Any]] = None
 _ALLOWED_METHODS = {"mb", "glasso", "ct", "tiger"}
 _ALLOWED_SYM = {"and", "or"}
 _ALLOWED_CRITERIA = {"ric", "stars", "ebic"}
@@ -133,208 +133,15 @@ _ALLOWED_INFERENCE_TYPES = {"Gaussian", "Nonparanormal"}
 _ALLOWED_INFERENCE_METHODS = {"score", "wald"}
 
 
-def _normalize_arch(arch: Optional[str]) -> str:
-    if arch is None:
-        return ""
-    value = str(arch).strip().lower()
-    aliases = {
-        "aarch64": "arm64",
-        "arm64": "arm64",
-        "amd64": "x86_64",
-        "x64": "x86_64",
-        "x86_64": "x86_64",
-    }
-    return aliases.get(value, value)
+try:  # optional acceleration
+    from . import _native_core as _CPP
+except Exception:  # pragma: no cover - extension optional
+    _CPP = None
 
 
-def _python_arch() -> str:
-    return _normalize_arch(platform.machine())
-
-
-def _r_arch() -> Optional[str]:
-    r_bin = shutil.which("R")
-    if r_bin is None:
-        return None
-
-    try:
-        proc = subprocess.run(
-            [r_bin, "--slave", "-e", "cat(R.version$arch)"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-
-    if proc.returncode != 0:
-        return None
-    out = (proc.stdout or proc.stderr).strip()
-    if not out:
-        return None
-    return _normalize_arch(out.splitlines()[0].strip())
-
-
-def _detect_arch_mismatch() -> Optional[tuple[str, str]]:
-    py_arch = _python_arch()
-    r_arch = _r_arch()
-    if py_arch and r_arch and py_arch != r_arch:
-        return py_arch, r_arch
-    return None
-
-
-def _arch_mismatch_message(py_arch: str, r_arch: str) -> str:
-    return (
-        "Python and R architectures do not match "
-        f"(Python={py_arch}, R={r_arch}). "
-        "rpy2 requires matching architectures. "
-        "Use a Python interpreter matching your R build "
-        "(for Apple Silicon R, prefer `/opt/homebrew/bin/python3`), "
-        "or install R matching your Python architecture. "
-        "Check with: "
-        "`python -c 'import platform; print(platform.machine())'` and "
-        "`R -q -e 'cat(R.version$arch, \"\\n\")'`."
-    )
-
-
-def _r_env() -> dict[str, Any]:
-    """Lazily import rpy2 and R package `huge`."""
-
-    global _R_ENV
-    if _R_ENV is not None:
-        return _R_ENV
-
-    if os.environ.get("PYHUGE_SKIP_ARCH_CHECK", "0") != "1":
-        mismatch = _detect_arch_mismatch()
-        if mismatch is not None:
-            raise PyHugeError(_arch_mismatch_message(*mismatch))
-
-    try:
-        import rpy2.robjects as ro
-        from rpy2.robjects import conversion, default_converter, numpy2ri
-        from rpy2.robjects.conversion import localconverter
-        from rpy2.robjects.packages import PackageNotInstalledError, importr
-    except ModuleNotFoundError as exc:
-        raise PyHugeError(
-            'rpy2 is required. Install with `pip install "pyhuge[runtime]"`.'
-        ) from exc
-    except OSError as exc:
-        mismatch = _detect_arch_mismatch()
-        if mismatch is not None:
-            raise PyHugeError(_arch_mismatch_message(*mismatch)) from exc
-        raise PyHugeError(
-            "rpy2 failed to initialize R runtime. "
-            "Check R installation and Python/R architecture compatibility."
-        ) from exc
-
-    try:
-        huge_pkg = importr("huge")
-    except PackageNotInstalledError as exc:
-        raise PyHugeError(
-            "R package `huge` is not installed in current R library paths."
-        ) from exc
-
-    _R_ENV = {
-        "ro": ro,
-        "conversion": conversion,
-        "default_converter": default_converter,
-        "numpy2ri": numpy2ri,
-        "localconverter": localconverter,
-        "huge_pkg": huge_pkg,
-    }
-    return _R_ENV
-
-
-def _py2r(value: Any) -> Any:
-    env = _r_env()
-    ro = env["ro"]
-    if value is None:
-        return ro.NULL
-    with env["localconverter"](env["default_converter"] + env["numpy2ri"].converter):
-        return env["conversion"].get_conversion().py2rpy(value)
-
-
-def _r2py(value: Any) -> Any:
-    env = _r_env()
-    with env["localconverter"](env["default_converter"] + env["numpy2ri"].converter):
-        return env["conversion"].get_conversion().rpy2py(value)
-
-
-def _scalar(value: Any) -> Optional[float]:
-    arr = np.asarray(_r2py(value))
-    if arr.size == 0:
-        return None
-    return float(arr.reshape(-1)[0])
-
-
-def _r_class(value: Any) -> set[str]:
-    env = _r_env()
-    classes = env["ro"].r["class"](value)
-    return {str(x) for x in classes}
-
-
-def _rs4_to_sparse(value: Any) -> sparse.spmatrix:
-    dim = np.asarray(_r2py(value.do_slot("Dim")), dtype=np.int32)
-    i = np.asarray(_r2py(value.do_slot("i")), dtype=np.int32)
-    p = np.asarray(_r2py(value.do_slot("p")), dtype=np.int32)
-    x = np.asarray(_r2py(value.do_slot("x")), dtype=float)
-    return sparse.csc_matrix((x, i, p), shape=(int(dim[0]), int(dim[1])))
-
-
-def _as_matrix(value: Any, prefer_sparse: bool = True) -> sparse.spmatrix | np.ndarray:
-    if prefer_sparse:
-        classes = _r_class(value)
-        if any(c.endswith("CMatrix") for c in classes):
-            return _rs4_to_sparse(value)
-    env = _r_env()
-    dense = env["ro"].r["as.matrix"](value)
-    array = np.asarray(_r2py(dense), dtype=float)
-    return sparse.csc_matrix(array) if prefer_sparse else array
-
-
-def _as_matrix_list(value: Any, prefer_sparse: bool = True) -> list[sparse.spmatrix | np.ndarray]:
-    return [_as_matrix(value[i], prefer_sparse=prefer_sparse) for i in range(len(value))]
-
-
-def _list_fields(r_list: Any) -> dict[str, Any]:
-    names = list(r_list.names)
-    return {str(n): r_list.rx2(str(n)) for n in names if n is not None}
-
-
-def _to_dense_matrix(value: Any, name: str) -> np.ndarray:
-    arr = value.toarray() if sparse.issparse(value) else np.asarray(value, dtype=float)
-    if arr.ndim != 2:
-        raise PyHugeError(f"`{name}` must be a 2D array-like matrix.")
-    return np.asarray(arr, dtype=float)
-
-
-def _path_to_r(path: Sequence[Any]) -> Any:
-    env = _r_env()
-    ro = env["ro"]
-    items: list[tuple[str, Any]] = []
-    for i, mat in enumerate(path, start=1):
-        dense = _to_dense_matrix(mat, f"path[{i}]")
-        items.append((str(i), _py2r(dense)))
-    return ro.ListVector(items)
-
-
-def _mpl_pyplot() -> Any:
-    try:
-        import matplotlib.pyplot as plt
-    except ModuleNotFoundError as exc:
-        raise PyHugeError(
-            "matplotlib is required for plotting. Install with `pip install matplotlib`."
-        ) from exc
-    return plt
-
-
-def _networkx_pkg() -> Any:
-    try:
-        import networkx as nx
-    except ModuleNotFoundError as exc:
-        raise PyHugeError(
-            "networkx is required for network plotting. Install with `pip install networkx`."
-        ) from exc
-    return nx
+def _ensure_backend_native(backend: str) -> None:
+    if backend != "native":
+        raise PyHugeError("pyhuge 0.3 supports only `backend=\"native\"`.")
 
 
 def _ensure_2d_array(name: str, value: Any, finite: bool = True) -> np.ndarray:
@@ -348,11 +155,27 @@ def _ensure_2d_array(name: str, value: Any, finite: bool = True) -> np.ndarray:
     return arr
 
 
+def _to_dense_matrix(value: Any, name: str) -> np.ndarray:
+    arr = value.toarray() if sparse.issparse(value) else np.asarray(value, dtype=float)
+    if arr.ndim != 2:
+        raise PyHugeError(f"`{name}` must be a 2D array-like matrix.")
+    return np.asarray(arr, dtype=float)
+
+
 def _ensure_positive_int(name: str, value: Any) -> int:
     ivalue = int(value)
     if ivalue <= 0:
         raise PyHugeError(f"`{name}` must be a positive integer.")
     return ivalue
+
+
+def _ensure_ratio(name: str, value: float, low_open: float = 0.0, high_closed: float = 1.0) -> float:
+    fval = float(value)
+    if not np.isfinite(fval):
+        raise PyHugeError(f"`{name}` must be finite.")
+    if not (fval > low_open and fval <= high_closed):
+        raise PyHugeError(f"`{name}` must satisfy {low_open} < {name} <= {high_closed}.")
+    return fval
 
 
 def _ensure_lambda_sequence(lambda_: Sequence[float]) -> np.ndarray:
@@ -368,13 +191,473 @@ def _ensure_lambda_sequence(lambda_: Sequence[float]) -> np.ndarray:
     return lam
 
 
-def _ensure_ratio(name: str, value: float, low_open: float = 0.0, high_closed: float = 1.0) -> float:
-    fval = float(value)
-    if not np.isfinite(fval):
-        raise PyHugeError(f"`{name}` must be finite.")
-    if not (fval > low_open and fval <= high_closed):
-        raise PyHugeError(f"`{name}` must satisfy {low_open} < {name} <= {high_closed}.")
-    return fval
+def _ensure_ct_lambda_sequence(lambda_: Sequence[float]) -> np.ndarray:
+    lam = np.asarray(lambda_, dtype=float).reshape(-1)
+    if lam.size == 0:
+        raise PyHugeError("`lambda_` must contain at least one value.")
+    if not np.isfinite(lam).all():
+        raise PyHugeError("`lambda_` contains non-finite values.")
+    if np.any(lam <= 0):
+        raise PyHugeError("`lambda_` must contain positive values.")
+    if lam.size > 1 and np.any(np.diff(lam) > 0):
+        raise PyHugeError("`lambda_` must be decreasing for method `ct` (ties are allowed).")
+    return lam
+
+
+def _is_covariance_input(x: np.ndarray) -> bool:
+    return x.shape[0] == x.shape[1] and np.allclose(x, x.T, rtol=1e-5, atol=1e-8)
+
+
+def _standardize(x: np.ndarray) -> np.ndarray:
+    mu = np.mean(x, axis=0)
+    xc = x - mu
+    sd = np.std(xc, axis=0, ddof=1)
+    sd = np.where(sd > 1e-12, sd, 1.0)
+    return xc / sd
+
+
+def _cov_to_corr(cov: np.ndarray) -> np.ndarray:
+    sd = np.sqrt(np.clip(np.diag(cov), 1e-12, None))
+    corr = cov / np.outer(sd, sd)
+    corr = np.clip(corr, -1.0, 1.0)
+    np.fill_diagonal(corr, 1.0)
+    return corr
+
+
+def _offdiag_abs_max(mat: np.ndarray) -> float:
+    d = mat.shape[0]
+    if d <= 1:
+        return 1e-3
+    m = np.max(np.abs(mat[~np.eye(d, dtype=bool)]))
+    return float(max(m, 1e-3))
+
+
+def _default_nlambda(method: str) -> int:
+    return 20 if method == "ct" else 10
+
+
+def _default_lambda_min_ratio(method: str) -> float:
+    return 0.05 if method == "ct" else 0.1
+
+
+def _build_lambda_path(
+    *,
+    base_matrix: np.ndarray,
+    method: str,
+    lambda_: Optional[Sequence[float]],
+    nlambda: Optional[int],
+    lambda_min_ratio: Optional[float],
+) -> np.ndarray:
+    if lambda_ is not None:
+        return _ensure_lambda_sequence(lambda_)
+
+    nlam = _default_nlambda(method) if nlambda is None else _ensure_positive_int("nlambda", nlambda)
+    ratio = (
+        _default_lambda_min_ratio(method)
+        if lambda_min_ratio is None
+        else _ensure_ratio("lambda_min_ratio", lambda_min_ratio)
+    )
+    lam_max = _offdiag_abs_max(base_matrix)
+    lam_min = lam_max * ratio
+
+    if method == "ct":
+        lam = np.linspace(lam_max, lam_min, nlam)
+    else:
+        lam = np.geomspace(lam_max, max(lam_min, lam_max * 1e-6), nlam)
+    return _ensure_lambda_sequence(lam)
+
+
+def _adj_sparsity(adj: np.ndarray) -> float:
+    d = adj.shape[0]
+    if d <= 1:
+        return 0.0
+    edges = float(np.count_nonzero(np.triu(adj, 1)))
+    return (2.0 * edges) / (d * (d - 1))
+
+
+def _path_sparsity(path: list[sparse.csc_matrix]) -> np.ndarray:
+    if _CPP is not None:
+        try:
+            dense_path = [np.asarray(p.toarray() != 0, dtype=np.uint8) for p in path]
+            out = np.asarray(_CPP.sparsity_path(dense_path), dtype=float)
+            if out.shape == (len(path),):
+                return out
+        except Exception:
+            pass
+    return np.asarray([_adj_sparsity(p.toarray() != 0) for p in path], dtype=float)
+
+
+def _symmetrize(directed: np.ndarray, sym: str) -> np.ndarray:
+    if sym == "or":
+        adj = np.logical_or(directed, directed.T)
+    else:
+        adj = np.logical_and(directed, directed.T)
+    np.fill_diagonal(adj, False)
+    return adj
+
+
+def _run_ct(corr: np.ndarray, lambda_path: np.ndarray) -> list[sparse.csc_matrix]:
+    if _CPP is not None:
+        try:
+            dense_path = _CPP.threshold_path(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float))
+            out: list[sparse.csc_matrix] = []
+            for m in dense_path:
+                a = np.asarray(m, dtype=bool)
+                np.fill_diagonal(a, False)
+                out.append(sparse.csc_matrix(a.astype(float)))
+            return out
+        except Exception:
+            pass
+
+    out: list[sparse.csc_matrix] = []
+    abs_corr = np.abs(corr)
+    for lam in lambda_path:
+        thr = float(lam) + 64.0 * np.finfo(float).eps * max(1.0, abs(float(lam)))
+        adj = abs_corr > thr
+        np.fill_diagonal(adj, False)
+        out.append(sparse.csc_matrix(adj.astype(float)))
+    return out
+
+
+def _run_ct_default_rank(
+    corr: np.ndarray,
+    nlambda: int,
+    lambda_min_ratio: float,
+) -> tuple[np.ndarray, list[sparse.csc_matrix], np.ndarray]:
+    # Match R huge.ct default path construction: rank-based density schedule.
+    d = int(corr.shape[0])
+    if d <= 1:
+        lam = np.repeat(_offdiag_abs_max(corr), nlambda).astype(float)
+        path = [sparse.csc_matrix((d, d), dtype=float) for _ in range(nlambda)]
+        sparsity = np.zeros(nlambda, dtype=float)
+        return lam, path, sparsity
+
+    s = np.abs(np.asarray(corr, dtype=float))
+    np.fill_diagonal(s, 0.0)
+
+    density_max = float(lambda_min_ratio) * d * (d - 1) / 2.0
+    density_min = 1.0
+    density_all = np.ceil(np.linspace(density_min, density_max, num=nlambda)).astype(np.int64) * 2
+
+    flat_f = s.reshape(-1, order="F")
+    tie_order = np.arange(flat_f.size, dtype=np.int64)
+    s_rank = np.lexsort((tie_order, -flat_f))
+
+    lambda_path = flat_f[s_rank[density_all - 1]].astype(float)
+    sparsity = density_all.astype(float) / float(d * (d - 1))
+
+    path: list[sparse.csc_matrix] = []
+    for k in density_all:
+        adj_flat = np.zeros(flat_f.size, dtype=bool)
+        if k > 0:
+            adj_flat[s_rank[: int(k)]] = True
+        adj = adj_flat.reshape((d, d), order="F")
+        np.fill_diagonal(adj, False)
+        path.append(sparse.csc_matrix(adj.astype(float)))
+
+    return lambda_path, path, sparsity
+
+
+def _ct_path_sparsity(path: list[sparse.csc_matrix]) -> np.ndarray:
+    if len(path) == 0:
+        return np.asarray([], dtype=float)
+    d = int(path[0].shape[0])
+    denom = float(d * (d - 1))
+    if denom <= 0:
+        return np.zeros(len(path), dtype=float)
+    return np.asarray([float(p.nnz) / denom for p in path], dtype=float)
+
+
+def _require_sklearn(component: str) -> None:
+    try:
+        import sklearn  # noqa: F401
+    except Exception as exc:  # pragma: no cover
+        raise PyHugeError(
+            f"scikit-learn is required for native `{component}`. Install with `pip install scikit-learn`."
+        ) from exc
+
+
+def _run_glasso(
+    s_mat: np.ndarray,
+    lambda_path: np.ndarray,
+    scr: bool,
+    cov_output: bool,
+) -> tuple[list[sparse.csc_matrix], list[np.ndarray], Optional[list[np.ndarray]], np.ndarray, np.ndarray]:
+    if _CPP is not None:
+        try:
+            out = _CPP.hugeglasso(
+                np.asarray(s_mat, dtype=float),
+                np.asarray(lambda_path, dtype=float),
+                bool(scr),
+                bool(cov_output),
+            )
+            path_cube = np.asarray(out["path"], dtype=np.uint8)
+            icov_cube = np.asarray(out["icov"], dtype=float)
+            loglik = np.asarray(out["loglik"], dtype=float).reshape(-1)
+            df = np.asarray(out["df"], dtype=float).reshape(-1)
+
+            path: list[sparse.csc_matrix] = []
+            icov: list[np.ndarray] = []
+            cov_list: list[np.ndarray] = []
+            for i in range(path_cube.shape[0]):
+                adj = path_cube[i] != 0
+                np.fill_diagonal(adj, False)
+                path.append(sparse.csc_matrix(adj.astype(float)))
+                icov.append(np.asarray(icov_cube[i], dtype=float))
+
+            cov_raw = out.get("cov", None)
+            if cov_output and cov_raw is not None:
+                cov_cube = np.asarray(cov_raw, dtype=float)
+                for i in range(cov_cube.shape[0]):
+                    cov_list.append(np.asarray(cov_cube[i], dtype=float))
+                cov_ret: Optional[list[np.ndarray]] = cov_list
+            else:
+                cov_ret = None
+
+            return path, icov, cov_ret, df, loglik
+        except Exception:
+            pass
+
+    _require_sklearn("glasso")
+    from sklearn.covariance import graphical_lasso
+    from sklearn.exceptions import ConvergenceWarning
+
+    path: list[sparse.csc_matrix] = []
+    icov: list[np.ndarray] = []
+    cov_list: list[np.ndarray] = []
+    loglik = np.zeros(lambda_path.size, dtype=float)
+    df = np.zeros(lambda_path.size, dtype=float)
+
+    d = s_mat.shape[0]
+    stable_cov = (s_mat + s_mat.T) / 2.0
+
+    def _solve(cov_input: np.ndarray, lam: float, max_iter: int) -> tuple[np.ndarray, np.ndarray, bool]:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConvergenceWarning)
+            cov_est_, prec_est_ = graphical_lasso(cov_input, alpha=float(lam), max_iter=max_iter, tol=1e-4)
+        has_conv_warn = any(isinstance(w.message, ConvergenceWarning) for w in caught)
+        return cov_est_, prec_est_, has_conv_warn
+
+    for i, lam in enumerate(lambda_path):
+        jitter = 1e-4 * np.eye(d)
+        try:
+            cov_est, prec_est, has_warn = _solve(stable_cov, float(lam), 500)
+            if has_warn:
+                cov_est, prec_est, _ = _solve(stable_cov + jitter, float(lam), 1200)
+        except Exception:
+            cov_est, prec_est, _ = _solve(stable_cov + jitter, float(lam), 1200)
+
+        prec_est = (prec_est + prec_est.T) / 2.0
+        cov_est = (cov_est + cov_est.T) / 2.0
+
+        adj = np.abs(prec_est) > 1e-8
+        np.fill_diagonal(adj, False)
+
+        path.append(sparse.csc_matrix(adj.astype(float)))
+        icov.append(prec_est)
+        cov_list.append(cov_est)
+        df[i] = np.count_nonzero(np.triu(adj, 1)) * 2.0
+
+        sign, logdet = np.linalg.slogdet(prec_est)
+        if sign <= 0:
+            loglik[i] = -np.inf
+        else:
+            loglik[i] = float(logdet - np.trace(stable_cov @ prec_est))
+
+    return path, icov, (cov_list if cov_output else None), df, loglik
+
+
+def _build_screen_idx(corr: np.ndarray, scr_num: int) -> np.ndarray:
+    d = corr.shape[0]
+    if scr_num <= 0 or scr_num >= d:
+        raise PyHugeError("`scr_num` must satisfy 1 <= scr_num < d.")
+    order = np.argsort(-np.abs(corr), axis=0)
+    return np.asarray(order[1 : scr_num + 1, :], dtype=np.int32)
+
+
+def _run_mb(
+    x_data: np.ndarray,
+    corr: np.ndarray,
+    lambda_path: np.ndarray,
+    sym: str,
+    scr: bool,
+    scr_num: Optional[int],
+) -> tuple[list[sparse.csc_matrix], np.ndarray]:
+    if _CPP is not None:
+        try:
+            if scr:
+                if scr_num is None:
+                    raise PyHugeError("`scr=True` requires `scr_num` in native MB C++ core.")
+                idx_mat = _build_screen_idx(corr, scr_num)
+                out = _CPP.spmb_scr(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float), idx_mat)
+            else:
+                out = _CPP.spmb_graph(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float))
+
+            beta = np.asarray(out["beta"], dtype=float)
+            df = np.asarray(out["df"], dtype=float)
+            nlam = beta.shape[0]
+
+            path: list[sparse.csc_matrix] = []
+            for li in range(nlam):
+                directed = np.abs(beta[li]) > 0
+                np.fill_diagonal(directed, False)
+                adj = _symmetrize(directed, sym)
+                path.append(sparse.csc_matrix(adj.astype(float)))
+            return path, df
+        except Exception:
+            pass
+
+    _require_sklearn("mb")
+    from sklearn.linear_model import lasso_path
+
+    x_std = _standardize(x_data)
+    _, d = x_std.shape
+    nlam = lambda_path.size
+    directed = np.zeros((nlam, d, d), dtype=bool)
+    df = np.zeros((d, nlam), dtype=float)
+
+    for j in range(d):
+        mask = np.ones(d, dtype=bool)
+        mask[j] = False
+        X = x_std[:, mask]
+        y = x_std[:, j]
+
+        alphas_out, coefs, _ = lasso_path(X, y, alphas=lambda_path, max_iter=4000)
+        alphas_out = np.asarray(alphas_out, dtype=float)
+        coefs = np.asarray(coefs, dtype=float)
+
+        if coefs.ndim == 1:
+            coefs = coefs[:, None]
+
+        if coefs.shape[1] != nlam or not np.allclose(alphas_out, lambda_path, rtol=1e-6, atol=1e-8):
+            idx = [int(np.argmin(np.abs(alphas_out - a))) for a in lambda_path]
+            coefs = coefs[:, idx]
+
+        for li in range(nlam):
+            nz = np.abs(coefs[:, li]) > 1e-8
+            directed[li, j, mask] = nz
+            df[j, li] = float(np.count_nonzero(nz))
+
+    path: list[sparse.csc_matrix] = []
+    for li in range(nlam):
+        adj = _symmetrize(directed[li], sym)
+        path.append(sparse.csc_matrix(adj.astype(float)))
+    return path, df
+
+
+def _run_tiger(
+    x_data: np.ndarray,
+    lambda_path: np.ndarray,
+    sym: str,
+) -> tuple[list[sparse.csc_matrix], np.ndarray, Optional[list[np.ndarray]]]:
+    x_std = _standardize(x_data)
+    if _CPP is not None:
+        try:
+            out = _CPP.spmb_graphsqrt(np.asarray(x_std, dtype=float), np.asarray(lambda_path, dtype=float))
+            beta = np.asarray(out["beta"], dtype=float)
+            df = np.asarray(out["df"], dtype=float)
+            icov_cube = np.asarray(out["icov"], dtype=float)
+
+            path: list[sparse.csc_matrix] = []
+            for li in range(beta.shape[0]):
+                directed = np.abs(beta[li]) > 0
+                np.fill_diagonal(directed, False)
+                adj = _symmetrize(directed, sym)
+                path.append(sparse.csc_matrix(adj.astype(float)))
+            icov = [np.asarray(icov_cube[i], dtype=float) for i in range(icov_cube.shape[0])]
+            return path, df, icov
+        except Exception:
+            pass
+
+    _require_sklearn("tiger")
+    from sklearn.linear_model import lasso_path
+
+    _, d = x_std.shape
+    nlam = lambda_path.size
+    directed = np.zeros((nlam, d, d), dtype=bool)
+    df = np.zeros((d, nlam), dtype=float)
+
+    for j in range(d):
+        mask = np.ones(d, dtype=bool)
+        mask[j] = False
+        X = x_std[:, mask]
+        y = x_std[:, j]
+
+        alphas_out, coefs, _ = lasso_path(X, y, alphas=lambda_path, max_iter=4000)
+        alphas_out = np.asarray(alphas_out, dtype=float)
+        coefs = np.asarray(coefs, dtype=float)
+
+        if coefs.ndim == 1:
+            coefs = coefs[:, None]
+
+        if coefs.shape[1] != nlam or not np.allclose(alphas_out, lambda_path, rtol=1e-6, atol=1e-8):
+            idx = [int(np.argmin(np.abs(alphas_out - a))) for a in lambda_path]
+            coefs = coefs[:, idx]
+
+        for li in range(nlam):
+            nz = np.abs(coefs[:, li]) > 1e-8
+            directed[li, j, mask] = nz
+            df[j, li] = float(np.count_nonzero(nz))
+
+    path: list[sparse.csc_matrix] = []
+    for li in range(nlam):
+        adj = _symmetrize(directed[li], sym)
+        path.append(sparse.csc_matrix(adj.astype(float)))
+
+    cov_mat = np.asarray(np.cov(x_data, rowvar=False), dtype=float)
+    return path, df, _precision_path_from_cov(cov_mat, lambda_path)
+
+
+def _precision_path_from_cov(cov_mat: np.ndarray, lambda_path: np.ndarray) -> list[np.ndarray]:
+    d = cov_mat.shape[0]
+    eye = np.eye(d, dtype=float)
+    stable_cov = (cov_mat + cov_mat.T) / 2.0
+
+    out: list[np.ndarray] = []
+    for lam in lambda_path:
+        reg = stable_cov + float(lam) * eye
+        reg = (reg + reg.T) / 2.0
+        try:
+            prec = np.linalg.inv(reg)
+        except np.linalg.LinAlgError:
+            prec = np.linalg.pinv(reg, rcond=1e-7)
+        out.append((prec + prec.T) / 2.0)
+    return out
+
+
+def _edge_count(path: Sequence[sparse.csc_matrix]) -> np.ndarray:
+    return np.asarray([np.count_nonzero(np.triu(p.toarray() != 0, 1)) for p in path], dtype=float)
+
+
+def _selected_index_ric(sparsity: np.ndarray) -> int:
+    if sparsity.size <= 2:
+        return int(sparsity.size - 1)
+    curv = np.zeros_like(sparsity)
+    curv[1:-1] = np.abs(np.diff(sparsity, n=2))
+    return int(np.argmax(curv))
+
+
+def _ebic_from_fit(est: HugeResult, ebic_gamma: float) -> np.ndarray:
+    if est.method != "glasso":
+        raise PyHugeError("`criterion='ebic'` requires a glasso fit.")
+
+    d = est.path[0].shape[0]
+    n = est.data.shape[0] if not est.cov_input else d
+    edge_k = _edge_count(est.path)
+
+    loglik = est.loglik
+    if loglik is None:
+        if est.icov is None:
+            raise PyHugeError("`criterion='ebic'` requires glasso fit with log-likelihood information.")
+        cov_mat = np.asarray(np.cov(est.data, rowvar=False), dtype=float) if not est.cov_input else est.data
+        vals = np.zeros(len(est.icov), dtype=float)
+        for i, prec in enumerate(est.icov):
+            sign, logdet = np.linalg.slogdet(np.asarray(prec, dtype=float))
+            vals[i] = -np.inf if sign <= 0 else float(logdet - np.trace(cov_mat @ prec))
+        loglik = vals
+
+    l = np.asarray(loglik, dtype=float) * (n / 2.0)
+    return -2.0 * l + edge_k * np.log(max(n, 2)) + 4.0 * ebic_gamma * edge_k * np.log(max(d, 2))
 
 
 def huge(
@@ -388,18 +671,20 @@ def huge(
     cov_output: bool = False,
     sym: str = "or",
     verbose: bool = True,
+    backend: str = "native",
 ) -> HugeResult:
-    """Run graph path estimation through R ``huge()``.
+    """Native graph path estimation.
 
-    Parameters follow R package semantics where possible.
-    Returns a parsed :class:`HugeResult` and keeps the original R object
-    in ``result.raw`` for advanced interoperability.
+    ``backend`` is kept for explicitness and future extension; only ``native``
+    is supported in 0.3.x.
     """
 
+    del verbose
+
+    _ensure_backend_native(backend)
+
     if method not in _ALLOWED_METHODS:
-        raise PyHugeError(
-            f"`method` must be one of {sorted(_ALLOWED_METHODS)}."
-        )
+        raise PyHugeError(f"`method` must be one of {sorted(_ALLOWED_METHODS)}.")
     if sym not in _ALLOWED_SYM:
         raise PyHugeError(f"`sym` must be one of {sorted(_ALLOWED_SYM)}.")
 
@@ -410,70 +695,133 @@ def huge(
     if lambda_min_ratio is not None:
         lambda_min_ratio = _ensure_ratio("lambda_min_ratio", lambda_min_ratio)
     if lambda_ is not None:
-        lambda_ = _ensure_lambda_sequence(lambda_)
+        lambda_ = _ensure_ct_lambda_sequence(lambda_) if method == "ct" else _ensure_lambda_sequence(lambda_)
 
     if method in {"ct", "tiger"} and scr is not None:
         raise PyHugeError("`scr` is only applicable for method `mb` and `glasso`.")
     if method != "mb" and scr_num is not None:
         raise PyHugeError("`scr_num` is only applicable for method `mb`.")
-    if scr_num is not None:
-        scr_num = _ensure_positive_int("scr_num", scr_num)
-        if scr is not True:
-            raise PyHugeError("`scr_num` requires `scr=True`.")
+
+    if method == "mb":
+        scr = False if scr is None else bool(scr)
+        if scr_num is not None:
+            scr_num = _ensure_positive_int("scr_num", scr_num)
+            if not scr:
+                raise PyHugeError("`scr_num` requires `scr=True`.")
+    elif method == "glasso":
+        scr = False if scr is None else bool(scr)
+    else:
+        scr = None
+
     if cov_output and method != "glasso":
         raise PyHugeError("`cov_output=True` is only valid for method `glasso`.")
     if method in {"ct", "glasso"} and sym != "or":
         raise PyHugeError("`sym` is only applicable to method `mb` and `tiger`.")
 
-    env = _r_env()
+    cov_input = _is_covariance_input(x)
+    if cov_input and method in {"mb", "tiger"}:
+        raise PyHugeError(f"`method={method}` requires raw data matrix (n x d), not covariance matrix.")
 
-    kwargs: dict[str, Any] = {
-        "x": _py2r(x),
-        "method": method,
-        "cov.output": bool(cov_output),
-        "sym": sym,
-        "verbose": bool(verbose),
-    }
-    if lambda_ is not None:
-        kwargs["lambda"] = _py2r(lambda_)
-    if nlambda is not None:
-        kwargs["nlambda"] = nlambda
-    if lambda_min_ratio is not None:
-        kwargs["lambda.min.ratio"] = lambda_min_ratio
-    if scr is not None:
-        kwargs["scr"] = bool(scr)
-    if scr_num is not None:
-        kwargs["scr.num"] = scr_num
+    if cov_input:
+        cov_mat = (x + x.T) / 2.0
+        corr = _cov_to_corr(cov_mat)
+    else:
+        x_std = _standardize(x)
+        cov_mat = np.asarray(np.cov(x, rowvar=False), dtype=float)
+        corr = np.asarray(np.corrcoef(x_std, rowvar=False), dtype=float)
 
-    r_fit = env["huge_pkg"].huge(**kwargs)
-    fields = _list_fields(r_fit)
+    if method == "mb" and bool(scr) and scr_num is None:
+        n, d = x.shape
+        if n < d:
+            scr_num = n - 1
+        else:
+            # Match huge: without explicit scr_num in n>=d, lossy screening is skipped.
+            scr = False
+    if method == "mb" and bool(scr) and scr_num is not None:
+        d = corr.shape[0]
+        scr_num = min(int(scr_num), d - 1)
+        if scr_num <= 0:
+            scr = False
 
-    fit = HugeResult(
-        method=str(np.asarray(_r2py(fields["method"])).reshape(-1)[0]),
-        lambda_path=np.asarray(_r2py(fields["lambda"]), dtype=float),
-        sparsity=np.asarray(_r2py(fields["sparsity"]), dtype=float),
-        path=[m for m in _as_matrix_list(fields["path"], prefer_sparse=True)],
-        cov_input=bool(_scalar(fields["cov.input"])),
-        data=np.asarray(_r2py(fields["data"]), dtype=float),
-        raw=r_fit,
+    if method == "ct":
+        if lambda_ is None:
+            nlam = _default_nlambda("ct") if nlambda is None else _ensure_positive_int("nlambda", nlambda)
+            ratio = _default_lambda_min_ratio("ct") if lambda_min_ratio is None else float(lambda_min_ratio)
+            lambda_path, path, sparsity = _run_ct_default_rank(corr, nlam, ratio)
+        else:
+            lambda_path = _ensure_ct_lambda_sequence(lambda_)
+            path = _run_ct(corr, lambda_path)
+            sparsity = _ct_path_sparsity(path)
+        return HugeResult(
+            method=method,
+            lambda_path=lambda_path,
+            sparsity=sparsity,
+            path=path,
+            cov_input=cov_input,
+            data=np.asarray(x, dtype=float),
+            sym="or",
+            raw={"backend": "native"},
+        )
+
+    s_glasso = cov_mat if cov_input else corr
+    base = corr if method in {"mb", "tiger"} else s_glasso
+    lambda_path = _build_lambda_path(
+        base_matrix=base,
+        method=method,
+        lambda_=lambda_,
+        nlambda=nlambda,
+        lambda_min_ratio=lambda_min_ratio,
     )
 
-    if "df" in fields:
-        fit.df = np.asarray(_r2py(fields["df"]))
-    if "loglik" in fields:
-        fit.loglik = np.asarray(_r2py(fields["loglik"]), dtype=float)
-    if "idx_mat" in fields:
-        fit.idx_mat = np.asarray(_r2py(fields["idx_mat"]))
-    if "icov" in fields:
-        fit.icov = [
-            np.asarray(m, dtype=float) for m in _as_matrix_list(fields["icov"], prefer_sparse=False)
-        ]
-    if "cov" in fields:
-        fit.cov = [
-            np.asarray(m, dtype=float) for m in _as_matrix_list(fields["cov"], prefer_sparse=False)
-        ]
+    if method == "glasso":
+        path, icov, cov_list, df, loglik = _run_glasso(
+            s_glasso,
+            lambda_path,
+            scr=bool(scr),
+            cov_output=cov_output,
+        )
+        return HugeResult(
+            method=method,
+            lambda_path=lambda_path,
+            sparsity=_path_sparsity(path),
+            path=path,
+            cov_input=cov_input,
+            data=np.asarray(x, dtype=float),
+            sym="or",
+            df=df,
+            loglik=loglik,
+            icov=icov,
+            cov=cov_list,
+            raw={"backend": "native", "scr": bool(scr), "cov_output": bool(cov_output)},
+        )
 
-    return fit
+    if method == "mb":
+        path, df = _run_mb(
+            x_data=np.asarray(x, dtype=float),
+            corr=np.asarray(corr, dtype=float),
+            lambda_path=lambda_path,
+            sym=sym,
+            scr=bool(scr),
+            scr_num=scr_num,
+        )
+        icov: Optional[list[np.ndarray]] = None
+        raw = {"backend": "native", "scr": bool(scr), "scr_num": scr_num}
+    else:
+        path, df, icov = _run_tiger(np.asarray(x, dtype=float), lambda_path, sym=sym)
+        raw = {"backend": "native"}
+
+    return HugeResult(
+        method=method,
+        lambda_path=lambda_path,
+        sparsity=_path_sparsity(path),
+        path=path,
+        cov_input=False,
+        data=np.asarray(x, dtype=float),
+        sym=sym,
+        df=df,
+        icov=icov,
+        raw=raw,
+    )
 
 
 def huge_mb(
@@ -485,8 +833,9 @@ def huge_mb(
     scr_num: Optional[int] = None,
     sym: str = "or",
     verbose: bool = True,
+    backend: str = "native",
 ) -> HugeResult:
-    """Convenience wrapper for ``huge(..., method="mb")``."""
+    """Convenience wrapper for ``huge(..., method='mb')``."""
 
     return huge(
         x=x,
@@ -499,6 +848,7 @@ def huge_mb(
         cov_output=False,
         sym=sym,
         verbose=verbose,
+        backend=backend,
     )
 
 
@@ -510,8 +860,9 @@ def huge_glasso(
     scr: Optional[bool] = None,
     cov_output: bool = False,
     verbose: bool = True,
+    backend: str = "native",
 ) -> HugeResult:
-    """Convenience wrapper for ``huge(..., method="glasso")``."""
+    """Convenience wrapper for ``huge(..., method='glasso')``."""
 
     return huge(
         x=x,
@@ -520,10 +871,10 @@ def huge_glasso(
         lambda_min_ratio=lambda_min_ratio,
         method="glasso",
         scr=scr,
-        scr_num=None,
         cov_output=cov_output,
         sym="or",
         verbose=verbose,
+        backend=backend,
     )
 
 
@@ -533,8 +884,9 @@ def huge_ct(
     nlambda: Optional[int] = None,
     lambda_min_ratio: Optional[float] = None,
     verbose: bool = True,
+    backend: str = "native",
 ) -> HugeResult:
-    """Convenience wrapper for ``huge(..., method="ct")``."""
+    """Convenience wrapper for ``huge(..., method='ct')``."""
 
     return huge(
         x=x,
@@ -542,11 +894,9 @@ def huge_ct(
         nlambda=nlambda,
         lambda_min_ratio=lambda_min_ratio,
         method="ct",
-        scr=None,
-        scr_num=None,
-        cov_output=False,
         sym="or",
         verbose=verbose,
+        backend=backend,
     )
 
 
@@ -557,8 +907,9 @@ def huge_tiger(
     lambda_min_ratio: Optional[float] = None,
     sym: str = "or",
     verbose: bool = True,
+    backend: str = "native",
 ) -> HugeResult:
-    """Convenience wrapper for ``huge(..., method="tiger")``."""
+    """Convenience wrapper for ``huge(..., method='tiger')``."""
 
     return huge(
         x=x,
@@ -566,102 +917,282 @@ def huge_tiger(
         nlambda=nlambda,
         lambda_min_ratio=lambda_min_ratio,
         method="tiger",
-        scr=None,
-        scr_num=None,
-        cov_output=False,
         sym=sym,
         verbose=verbose,
+        backend=backend,
     )
 
 
 def huge_select(
-    est: HugeResult | Any,
+    est: HugeResult,
     criterion: Optional[str] = None,
     ebic_gamma: float = 0.5,
     stars_thresh: float = 0.1,
     stars_subsample_ratio: Optional[float] = None,
     rep_num: int = 20,
     verbose: bool = True,
+    backend: str = "native",
 ) -> HugeSelectResult:
-    """Run model selection through R ``huge.select()``.
+    """Native model selection for ``HugeResult``."""
 
-    Parameters align with R ``huge.select``. ``est`` can be either
-    :class:`HugeResult` or a raw R object returned by ``huge()``.
-    """
+    del verbose
+    _ensure_backend_native(backend)
 
-    if criterion is not None and criterion not in _ALLOWED_CRITERIA:
+    if not isinstance(est, HugeResult):
+        raise PyHugeError("`est` must be HugeResult in native backend.")
+    if est.cov_input:
+        raise PyHugeError("Model selection is not available when using covariance matrix as input.")
+
+    crit = "ric" if criterion is None else str(criterion)
+    if crit not in _ALLOWED_CRITERIA:
         raise PyHugeError(f"`criterion` must be one of {sorted(_ALLOWED_CRITERIA)}.")
+
     if not np.isfinite(float(ebic_gamma)):
         raise PyHugeError("`ebic_gamma` must be finite.")
     stars_thresh = _ensure_ratio("stars_thresh", stars_thresh)
     rep_num = _ensure_positive_int("rep_num", rep_num)
     if stars_subsample_ratio is not None:
         stars_subsample_ratio = _ensure_ratio("stars_subsample_ratio", stars_subsample_ratio)
-    if isinstance(est, HugeResult) and criterion == "ebic" and est.method != "glasso":
-        raise PyHugeError("`criterion='ebic'` requires a glasso fit.")
 
-    env = _r_env()
-    r_est = est.raw if isinstance(est, HugeResult) else est
+    nlam = est.lambda_path.size
+    if nlam == 0 or len(est.path) == 0:
+        raise PyHugeError("`est` has an empty path.")
+    if len(est.path) != nlam:
+        raise PyHugeError("`est.path` length must match `est.lambda_path` length.")
 
-    kwargs: dict[str, Any] = {
-        "est": r_est,
-        "ebic.gamma": float(ebic_gamma),
-        "stars.thresh": stars_thresh,
-        "rep.num": rep_num,
-        "verbose": bool(verbose),
-    }
-    if criterion is not None:
-        kwargs["criterion"] = criterion
-    if stars_subsample_ratio is not None:
-        kwargs["stars.subsample.ratio"] = stars_subsample_ratio
+    scr_meta = False
+    scr_num_meta: Optional[int] = None
+    if isinstance(est.raw, dict):
+        scr_meta = bool(est.raw.get("scr", False))
+        if est.raw.get("scr_num") is not None:
+            try:
+                scr_num_meta = int(est.raw.get("scr_num"))
+            except Exception:
+                scr_num_meta = None
 
-    r_sel = env["huge_pkg"].huge_select(**kwargs)
-    fields = _list_fields(r_sel)
+    opt_idx = 0
+    variability: Optional[np.ndarray] = None
+    ebic_score: Optional[np.ndarray] = None
 
-    criterion_value = str(np.asarray(_r2py(fields.get("criterion", _py2r(["ric"])))).reshape(-1)[0])
-    refit = _as_matrix(fields["refit"], prefer_sparse=True)
+    if crit == "ric":
+        x = _ensure_2d_array("est.data", est.data, finite=True)
+        n = x.shape[0]
+        if _CPP is not None:
+            if n > rep_num:
+                rng = np.random.default_rng(0)
+                r = np.asarray(rng.choice(n, size=rep_num, replace=False), dtype=np.int32)
+            else:
+                r = np.arange(n, dtype=np.int32)
 
-    result = HugeSelectResult(
-        criterion=criterion_value,
-        opt_lambda=float(_scalar(fields["opt.lambda"])),
-        opt_sparsity=float(_scalar(fields["opt.sparsity"])),
-        refit=refit if sparse.issparse(refit) else sparse.csc_matrix(refit),
-        raw=r_sel,
+            opt_lambda = float(_CPP.ric(np.asarray(x, dtype=float), r)) / float(max(n, 1))
+            nearest_idx = int(np.argmin(np.abs(est.lambda_path - opt_lambda)))
+            refit_fit = huge(
+                x=x,
+                lambda_=[opt_lambda],
+                method=est.method,
+                scr=scr_meta if est.method in {"mb", "glasso"} else None,
+                scr_num=scr_num_meta if est.method == "mb" else None,
+                cov_output=(est.method == "glasso" and est.cov is not None),
+                sym=est.sym,
+                verbose=False,
+                backend="native",
+            )
+
+            out = HugeSelectResult(
+                criterion=crit,
+                opt_lambda=float(opt_lambda),
+                opt_sparsity=float(refit_fit.sparsity[0]),
+                refit=refit_fit.path[0],
+                opt_index=int(nearest_idx + 1),
+                variability=None,
+                ebic_score=None,
+                raw={"backend": "native", "criterion": crit},
+            )
+            if refit_fit.icov is not None:
+                out.opt_icov = np.asarray(refit_fit.icov[0], dtype=float)
+            if refit_fit.cov is not None:
+                out.opt_cov = np.asarray(refit_fit.cov[0], dtype=float)
+            return out
+
+        # Fallback when C++ core is unavailable.
+        opt_idx = _selected_index_ric(est.sparsity)
+
+    elif crit == "ebic":
+        ebic_score = _ebic_from_fit(est, float(ebic_gamma))
+        opt_idx = int(np.argmin(ebic_score))
+
+    else:  # stars
+        x = _ensure_2d_array("est.data", est.data, finite=True)
+        n = x.shape[0]
+        ratio = stars_subsample_ratio
+        if ratio is None:
+            ratio = 0.8 if n <= 144 else min(0.99, 10.0 * math.sqrt(n) / n)
+        m = max(2, int(n * ratio))
+
+        rng = np.random.default_rng(0)
+        d = x.shape[1]
+        freq = np.zeros((nlam, d, d), dtype=float)
+
+        for _ in range(rep_num):
+            idx = rng.choice(n, size=m, replace=False)
+            subfit = huge(
+                x[idx],
+                lambda_=est.lambda_path,
+                method=est.method,
+                sym=est.sym,
+                scr=scr_meta if est.method in {"mb", "glasso"} else None,
+                scr_num=scr_num_meta if est.method == "mb" else None,
+                backend="native",
+            )
+            for li, p in enumerate(subfit.path):
+                freq[li] += (p.toarray() != 0).astype(float)
+
+        freq /= float(rep_num)
+        variability = np.zeros(nlam, dtype=float)
+        for li in range(nlam):
+            p_mat = 0.5 * (freq[li] + freq[li].T)
+            np.fill_diagonal(p_mat, 0.0)
+            variability[li] = float(4.0 * np.sum(p_mat * (1.0 - p_mat)) / (d * (d - 1)))
+
+        stars_cross = np.where(variability >= stars_thresh)[0]
+        if stars_cross.size == 0:
+            opt_idx = int(nlam - 1)
+        else:
+            opt_idx = max(int(stars_cross[0]) - 1, 0)
+
+    refit = est.path[opt_idx]
+    out = HugeSelectResult(
+        criterion=crit,
+        opt_lambda=float(est.lambda_path[opt_idx]),
+        opt_sparsity=float(est.sparsity[opt_idx]),
+        refit=refit,
+        opt_index=int(opt_idx + 1),
+        variability=variability,
+        ebic_score=ebic_score,
+        raw={"backend": "native", "criterion": crit},
     )
 
-    if "opt.index" in fields:
-        result.opt_index = int(_scalar(fields["opt.index"]))
-    if "variability" in fields:
-        result.variability = np.asarray(_r2py(fields["variability"]), dtype=float)
-    if "ebic.score" in fields:
-        result.ebic_score = np.asarray(_r2py(fields["ebic.score"]), dtype=float)
-    if "opt.icov" in fields:
-        result.opt_icov = np.asarray(_as_matrix(fields["opt.icov"], prefer_sparse=False), dtype=float)
-    if "opt.cov" in fields:
-        result.opt_cov = np.asarray(_as_matrix(fields["opt.cov"], prefer_sparse=False), dtype=float)
-
-    return result
+    if est.icov is not None:
+        out.opt_icov = np.asarray(est.icov[opt_idx], dtype=float)
+    if est.cov is not None:
+        out.opt_cov = np.asarray(est.cov[opt_idx], dtype=float)
+    return out
 
 
-def huge_npn(x: np.ndarray, npn_func: str = "shrinkage", verbose: bool = True) -> np.ndarray:
-    """Apply nonparanormal transformation via R ``huge.npn()``.
+def huge_npn(
+    x: np.ndarray,
+    npn_func: str = "shrinkage",
+    verbose: bool = True,
+) -> np.ndarray:
+    """Native nonparanormal transformation."""
 
-    Returns the transformed data matrix as ``numpy.ndarray``.
-    """
+    del verbose
 
     if npn_func not in _ALLOWED_NPN_FUNCS:
         raise PyHugeError(f"`npn_func` must be one of {sorted(_ALLOWED_NPN_FUNCS)}.")
-    env = _r_env()
-    x = _ensure_2d_array("x", x, finite=True)
 
-    r_npn = env["huge_pkg"].huge_npn(
-        _py2r(x),
-        **{
-            "npn.func": npn_func,
-            "verbose": bool(verbose),
-        },
-    )
-    return np.asarray(_r2py(r_npn), dtype=float)
+    x = _ensure_2d_array("x", x, finite=True)
+    n, d = x.shape
+
+    if npn_func == "skeptic":
+        rho, _ = stats.spearmanr(x, axis=0)
+        rho = np.asarray(rho, dtype=float)
+        if rho.ndim == 0:
+            rho = np.eye(d, dtype=float)
+        if rho.shape[0] != d:
+            rho = rho[:d, :d]
+        out = 2.0 * np.sin((np.pi / 6.0) * rho)
+        np.fill_diagonal(out, 1.0)
+        return out
+
+    z = np.zeros_like(x, dtype=float)
+    trunc = 1.0 / (4.0 * (n ** 0.25) * math.sqrt(np.pi * np.log(max(n, 2))))
+
+    for j in range(d):
+        col = x[:, j]
+        rank = stats.rankdata(col, method="average")
+        u = rank / (n + 1.0)
+        if npn_func == "shrinkage":
+            eps = 1.0 / (2.0 * n)
+            u = np.clip(u, eps, 1.0 - eps)
+        else:
+            u = np.clip(u, trunc, 1.0 - trunc)
+        z[:, j] = stats.norm.ppf(u)
+
+    return z
+
+
+def _group_partitions(d: int, g: int) -> list[np.ndarray]:
+    idx = np.arange(d)
+    return [arr for arr in np.array_split(idx, g) if arr.size > 0]
+
+
+def _theta_random(d: int, prob: float, rng: np.random.Generator) -> np.ndarray:
+    a = np.zeros((d, d), dtype=float)
+    tri = np.triu(rng.random((d, d)) < prob, 1)
+    a[tri] = 1.0
+    a = a + a.T
+    return a
+
+
+def _theta_hub(d: int, g: int) -> np.ndarray:
+    a = np.zeros((d, d), dtype=float)
+    for grp in _group_partitions(d, g):
+        if grp.size <= 1:
+            continue
+        c = int(grp[0])
+        for j in grp[1:]:
+            a[c, j] = 1.0
+            a[j, c] = 1.0
+    return a
+
+
+def _theta_cluster(d: int, g: int, prob: float, rng: np.random.Generator) -> np.ndarray:
+    a = np.zeros((d, d), dtype=float)
+    for grp in _group_partitions(d, g):
+        m = grp.size
+        if m <= 1:
+            continue
+        mask = np.triu(rng.random((m, m)) < prob, 1)
+        for i in range(m):
+            for j in range(i + 1, m):
+                if mask[i, j]:
+                    u = int(grp[i])
+                    v = int(grp[j])
+                    a[u, v] = 1.0
+                    a[v, u] = 1.0
+    return a
+
+
+def _theta_band(d: int, g: int) -> np.ndarray:
+    a = np.zeros((d, d), dtype=float)
+    for i in range(d):
+        for j in range(max(0, i - g), min(d, i + g + 1)):
+            if i != j:
+                a[i, j] = 1.0
+    a = np.maximum(a, a.T)
+    np.fill_diagonal(a, 0.0)
+    return a
+
+
+def _theta_scale_free(d: int, rng: np.random.Generator) -> np.ndarray:
+    a = np.zeros((d, d), dtype=float)
+    if d <= 1:
+        return a
+    a[0, 1] = 1.0
+    a[1, 0] = 1.0
+    degrees = np.sum(a, axis=0)
+    for new_node in range(2, d):
+        total_deg = float(np.sum(degrees[:new_node]))
+        if total_deg <= 0:
+            target = int(rng.integers(0, new_node))
+        else:
+            prob = degrees[:new_node] / total_deg
+            target = int(rng.choice(np.arange(new_node), p=prob))
+        a[new_node, target] = 1.0
+        a[target, new_node] = 1.0
+        degrees = np.sum(a, axis=0)
+    return a
 
 
 def huge_generator(
@@ -674,64 +1205,141 @@ def huge_generator(
     prob: Optional[float] = None,
     vis: bool = False,
     verbose: bool = True,
+    random_state: Optional[int] = None,
 ) -> HugeGeneratorResult:
-    """Generate synthetic data via R ``huge.generator()``."""
+    """Native data generator."""
+
+    del vis, verbose
 
     n = _ensure_positive_int("n", n)
     d = _ensure_positive_int("d", d)
     if graph not in _ALLOWED_GRAPH_TYPES:
         raise PyHugeError(f"`graph` must be one of {sorted(_ALLOWED_GRAPH_TYPES)}.")
-    if v is not None and float(v) <= 0:
-        raise PyHugeError("`v` must be positive.")
-    if u is not None and float(u) <= 0:
-        raise PyHugeError("`u` must be positive.")
-    if g is not None:
-        g = _ensure_positive_int("g", g)
-    if prob is not None:
-        prob_val = float(prob)
-        if not np.isfinite(prob_val) or not (0.0 <= prob_val <= 1.0):
-            raise PyHugeError("`prob` must satisfy 0 <= prob <= 1.")
-        prob = prob_val
 
-    env = _r_env()
-    kwargs: dict[str, Any] = {
-        "n": n,
-        "d": d,
-        "graph": graph,
-        "vis": bool(vis),
-        "verbose": bool(verbose),
-    }
-    if v is not None:
-        kwargs["v"] = float(v)
-    if u is not None:
-        kwargs["u"] = float(u)
-    if g is not None:
-        kwargs["g"] = int(g)
-    if prob is not None:
-        kwargs["prob"] = float(prob)
+    rng = np.random.default_rng(random_state)
+    v_val = 0.3 if v is None else float(v)
+    u_val = 0.1 if u is None else float(u)
 
-    r_sim = env["huge_pkg"].huge_generator(**kwargs)
-    fields = _list_fields(r_sim)
+    if v_val <= 0 or u_val <= 0:
+        raise PyHugeError("`v` and `u` must be positive.")
 
-    theta = _as_matrix(fields["theta"], prefer_sparse=True)
-    sparsity_val = _scalar(fields["sparsity"])
-    if sparsity_val is None:
-        theta_dense = theta.toarray() if sparse.issparse(theta) else np.asarray(theta)
-        d_theta = theta_dense.shape[1]
-        sparsity_val = float(np.sum(theta_dense != 0) / (d_theta * (d_theta - 1)))
+    if graph in {"hub", "cluster"}:
+        g_val = 2 if d < 40 else max(2, d // 20)
+        if g is not None:
+            g_val = _ensure_positive_int("g", g)
+    elif graph == "band":
+        g_val = 1 if g is None else _ensure_positive_int("g", g)
+    else:
+        g_val = 1
 
-    graph_type = str(np.asarray(_r2py(fields["graph.type"])).reshape(-1)[0]) if "graph.type" in fields else graph
+    if graph == "random":
+        p_val = (3.0 / d) if prob is None else float(prob)
+    elif graph == "cluster":
+        p_val = (6.0 * g_val / d) if (d / max(g_val, 1)) <= 30 else 0.3
+        if prob is not None:
+            p_val = float(prob)
+    else:
+        p_val = 0.0
+
+    if p_val < 0.0 or p_val > 1.0:
+        raise PyHugeError("`prob` must satisfy 0 <= prob <= 1.")
+
+    if graph == "random":
+        theta = _theta_random(d, p_val, rng)
+    elif graph == "hub":
+        theta = _theta_hub(d, g_val)
+    elif graph == "cluster":
+        theta = _theta_cluster(d, g_val, p_val, rng)
+    elif graph == "band":
+        theta = _theta_band(d, g_val)
+    else:
+        if _CPP is not None:
+            try:
+                seed = None if random_state is None else int(random_state)
+                theta = np.asarray(_CPP.sfgen(2, int(d), seed), dtype=float)
+            except Exception:
+                theta = _theta_scale_free(d, rng)
+        else:
+            theta = _theta_scale_free(d, rng)
+
+    base = v_val * theta
+    min_eig = float(np.min(np.linalg.eigvalsh(base)))
+    shift = abs(min_eig) + 0.1 + u_val
+    omega = base + np.eye(d) * shift
+    sigma = np.linalg.inv(omega)
+    sigma = (sigma + sigma.T) / 2.0
+
+    data = rng.multivariate_normal(mean=np.zeros(d), cov=sigma, size=n)
+    sigmahat = np.asarray(np.cov(data, rowvar=False), dtype=float)
 
     return HugeGeneratorResult(
-        data=np.asarray(_r2py(fields["data"]), dtype=float),
-        sigma=np.asarray(_as_matrix(fields["sigma"], prefer_sparse=False), dtype=float),
-        omega=np.asarray(_as_matrix(fields["omega"], prefer_sparse=False), dtype=float),
-        sigmahat=np.asarray(_as_matrix(fields["sigmahat"], prefer_sparse=False), dtype=float),
-        theta=theta if sparse.issparse(theta) else sparse.csc_matrix(theta),
-        sparsity=float(sparsity_val),
-        graph_type=graph_type,
-        raw=r_sim,
+        data=np.asarray(data, dtype=float),
+        sigma=np.asarray(sigma, dtype=float),
+        omega=np.asarray(omega, dtype=float),
+        sigmahat=sigmahat,
+        theta=sparse.csc_matrix(theta),
+        sparsity=_adj_sparsity(theta != 0),
+        graph_type=graph,
+        raw={"backend": "native"},
     )
+
+
+def huge_roc(
+    path: Sequence[np.ndarray | sparse.spmatrix],
+    theta: np.ndarray | sparse.spmatrix,
+    verbose: bool = True,
+    plot: bool = False,
+) -> HugeRocResult:
+    """Native ROC metrics for graph path."""
+
+    del verbose
+
+    if len(path) == 0:
+        raise PyHugeError("`path` must contain at least one adjacency matrix.")
+
+    theta_dense = _to_dense_matrix(theta, "theta")
+    if theta_dense.shape[0] != theta_dense.shape[1]:
+        raise PyHugeError("`theta` must be square.")
+
+    d = theta_dense.shape[0]
+    truth = np.asarray(theta_dense != 0, dtype=bool)
+    np.fill_diagonal(truth, False)
+    truth_u = np.triu(truth, 1)
+
+    total_pos = max(int(np.count_nonzero(truth_u)), 1)
+    total_pairs = d * (d - 1) // 2
+    total_neg = max(total_pairs - total_pos, 1)
+
+    tp = np.zeros(len(path), dtype=float)
+    fp = np.zeros(len(path), dtype=float)
+    f1 = np.zeros(len(path), dtype=float)
+
+    for i, p in enumerate(path):
+        pred = _to_dense_matrix(p, f"path[{i + 1}]")
+        if pred.shape != (d, d):
+            raise PyHugeError(f"`path[{i + 1}]` must have shape ({d}, {d}).")
+
+        pred_u = np.triu(pred != 0, 1)
+        tp_count = int(np.count_nonzero(pred_u & truth_u))
+        fp_count = int(np.count_nonzero(pred_u & (~truth_u)))
+        pred_count = int(np.count_nonzero(pred_u))
+
+        tp[i] = tp_count / total_pos
+        fp[i] = fp_count / total_neg
+
+        precision = tp_count / max(pred_count, 1)
+        recall = tp[i]
+        denom = precision + recall
+        f1[i] = 0.0 if denom <= 0 else (2.0 * precision * recall / denom)
+
+    order = np.argsort(fp)
+    auc = float(np.trapezoid(tp[order], fp[order]))
+    out = HugeRocResult(f1=f1, tp=tp, fp=fp, auc=auc, raw={"backend": "native"})
+
+    if plot:
+        huge_plot_roc(out)
+
+    return out
 
 
 def huge_inference(
@@ -742,7 +1350,7 @@ def huge_inference(
     type_: str = "Gaussian",
     method: str = "score",
 ) -> HugeInferenceResult:
-    """Run edge inference via R ``huge.inference()``."""
+    """Native edge-wise inference via partial-correlation z test approximation."""
 
     if type_ not in _ALLOWED_INFERENCE_TYPES:
         raise PyHugeError(f"`type_` must be one of {sorted(_ALLOWED_INFERENCE_TYPES)}.")
@@ -750,123 +1358,55 @@ def huge_inference(
         raise PyHugeError(f"`method` must be one of {sorted(_ALLOWED_INFERENCE_METHODS)}.")
     alpha = _ensure_ratio("alpha", alpha)
 
-    data = _ensure_2d_array("data", data, finite=True)
-    t = _to_dense_matrix(t, "t")
-    adj = _to_dense_matrix(adj, "adj")
-    d = data.shape[1]
-    if t.shape != (d, d):
+    x = _ensure_2d_array("data", data, finite=True)
+    n, d = x.shape
+
+    t_mat = _to_dense_matrix(t, "t")
+    if t_mat.shape != (d, d):
         raise PyHugeError(f"`t` must have shape ({d}, {d}).")
-    if adj.shape != (d, d):
+
+    adj_mat = _to_dense_matrix(adj, "adj")
+    if adj_mat.shape != (d, d):
         raise PyHugeError(f"`adj` must have shape ({d}, {d}).")
-    if not np.isfinite(t).all() or not np.isfinite(adj).all():
-        raise PyHugeError("`t` and `adj` must contain finite values.")
-    env = _r_env()
 
-    r_inf = env["huge_pkg"].huge_inference(
-        _py2r(data),
-        _py2r(t),
-        _py2r(adj),
-        alpha=alpha,
-        type=type_,
-        method=method,
-    )
-    fields = _list_fields(r_inf)
+    if type_ == "Nonparanormal":
+        x = huge_npn(x, npn_func="shrinkage")
 
-    return HugeInferenceResult(
-        data=np.asarray(_r2py(fields["data"]), dtype=float),
-        p=np.asarray(_as_matrix(fields["p"], prefer_sparse=False), dtype=float),
-        error=float(_scalar(fields["error"])),
-        raw=r_inf,
-    )
+    diag = np.clip(np.diag(t_mat), 1e-12, None)
+    denom = np.sqrt(np.outer(diag, diag))
+    rho = -t_mat / denom
+    rho = np.clip(rho, -0.999999, 0.999999)
 
+    z = 0.5 * np.log((1.0 + rho) / (1.0 - rho)) * np.sqrt(max(n - 3, 1))
+    p = 2.0 * (1.0 - stats.norm.cdf(np.abs(z)))
+    np.fill_diagonal(p, 0.0)
 
-def huge_roc(
-    path: Sequence[np.ndarray | sparse.spmatrix],
-    theta: np.ndarray | sparse.spmatrix,
-    verbose: bool = True,
-    plot: bool = False,
-) -> HugeRocResult:
-    """Compute ROC metrics via R ``huge.roc()``.
+    offdiag = ~np.eye(d, dtype=bool)
+    null_mask = (adj_mat == 0) & offdiag
+    error = float(np.mean(p[null_mask] <= alpha)) if np.any(null_mask) else 0.0
 
-    By default ``plot=False`` routes plotting to a temporary PDF device to avoid
-    GUI-device requirements in headless environments.
-    """
-
-    if len(path) == 0:
-        raise PyHugeError("`path` must contain at least one adjacency matrix.")
-    theta_dense = _to_dense_matrix(theta, "theta")
-    if theta_dense.shape[0] != theta_dense.shape[1]:
-        raise PyHugeError("`theta` must be square.")
-    d = theta_dense.shape[0]
-    for i, mat in enumerate(path, start=1):
-        dense = _to_dense_matrix(mat, f"path[{i}]")
-        if dense.shape != (d, d):
-            raise PyHugeError(f"`path[{i}]` must have shape ({d}, {d}).")
-
-    env = _r_env()
-    ro = env["ro"]
-    r_path = _path_to_r(path)
-
-    pdf_fd: Optional[int] = None
-    pdf_path: Optional[str] = None
-    try:
-        if not plot:
-            pdf_fd, pdf_path = tempfile.mkstemp(prefix="pyhuge_roc_", suffix=".pdf")
-            os.close(pdf_fd)
-            pdf_fd = None
-            ro.r["pdf"](pdf_path)
-
-        r_roc = env["huge_pkg"].huge_roc(r_path, _py2r(theta_dense), verbose=bool(verbose))
-    finally:
-        if not plot:
-            try:
-                ro.r["dev.off"]()
-            except Exception:
-                pass
-            if pdf_path and os.path.exists(pdf_path):
-                try:
-                    os.remove(pdf_path)
-                except OSError:
-                    pass
-            if pdf_fd is not None:
-                try:
-                    os.close(pdf_fd)
-                except OSError:
-                    pass
-
-    fields = _list_fields(r_roc)
-    return HugeRocResult(
-        f1=np.asarray(_r2py(fields["F1"]), dtype=float),
-        tp=np.asarray(_r2py(fields["tp"]), dtype=float),
-        fp=np.asarray(_r2py(fields["fp"]), dtype=float),
-        auc=float(_scalar(fields["AUC"])),
-        raw=r_roc,
-    )
+    return HugeInferenceResult(data=np.asarray(x, dtype=float), p=np.asarray(p, dtype=float), error=error)
 
 
 def huge_stockdata() -> HugeStockDataResult:
-    """Load dataset ``stockdata`` from R package ``huge``."""
+    """Load packaged stock dataset (converted from R ``stockdata``)."""
 
-    env = _r_env()
-    ro = env["ro"]
-    ro.r["data"]("stockdata", package="huge")
-    r_stock = ro.globalenv["stockdata"]
-    fields = _list_fields(r_stock)
-    info_dim = np.asarray(_r2py(ro.r["dim"](fields["info"])), dtype=int).reshape(-1)
-    info_flat = np.asarray(_r2py(fields["info"]))
-    if info_dim.size == 2 and info_flat.size == int(info_dim[0] * info_dim[1]):
-        info = info_flat.reshape((int(info_dim[0]), int(info_dim[1])), order="F")
-    else:
-        info = info_flat
-    return HugeStockDataResult(
-        data=np.asarray(_r2py(fields["data"]), dtype=float),
-        info=info,
-        raw=r_stock,
-    )
+    try:
+        stock_path = resources.files("pyhuge").joinpath("data/stockdata.npz")
+        with resources.as_file(stock_path) as resolved:
+            payload = np.load(resolved, allow_pickle=True)
+            data = np.asarray(payload["data"], dtype=float)
+            info = np.asarray(payload["info"])
+    except FileNotFoundError as exc:
+        raise PyHugeError("Built-in stock dataset is missing from the package installation.") from exc
+    except Exception as exc:
+        raise PyHugeError("Failed to load built-in stock dataset.") from exc
+
+    return HugeStockDataResult(data=data, info=info, raw={"source": str(stock_path)})
 
 
 def huge_summary(fit: HugeResult) -> HugeSummary:
-    """Return a concise, Python-native summary of ``HugeResult``."""
+    """Return a concise summary of ``HugeResult``."""
 
     n_samples, n_features = fit.data.shape
     return HugeSummary(
@@ -883,24 +1423,35 @@ def huge_summary(fit: HugeResult) -> HugeSummary:
 
 
 def huge_select_summary(sel: HugeSelectResult) -> HugeSelectSummary:
-    """Return a concise, Python-native summary of ``HugeSelectResult``."""
+    """Return a concise summary of ``HugeSelectResult``."""
 
-    refit_shape = sel.refit.shape
     return HugeSelectSummary(
         criterion=sel.criterion,
         opt_lambda=float(sel.opt_lambda),
         opt_sparsity=float(sel.opt_sparsity),
-        refit_n_features=int(refit_shape[1]),
+        refit_n_features=int(sel.refit.shape[1]),
         has_opt_icov=sel.opt_icov is not None,
         has_opt_cov=sel.opt_cov is not None,
     )
 
 
-def huge_plot_sparsity(
-    fit: HugeResult,
-    ax: Optional[Any] = None,
-    show_points: bool = True,
-) -> Any:
+def _mpl_pyplot() -> Any:
+    try:
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise PyHugeError("matplotlib is required for plotting. Install with `pip install matplotlib`.") from exc
+    return plt
+
+
+def _networkx_pkg() -> Any:
+    try:
+        import networkx as nx
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise PyHugeError("networkx is required for network plotting. Install with `pip install networkx`.") from exc
+    return nx
+
+
+def huge_plot_sparsity(fit: HugeResult, ax: Optional[Any] = None, show_points: bool = True) -> Any:
     """Plot sparsity level versus regularization path."""
 
     if fit.lambda_path.size == 0:
@@ -932,9 +1483,7 @@ def huge_plot_roc(roc: HugeRocResult, ax: Optional[Any] = None) -> Any:
         _, ax = plt.subplots(1, 1)
 
     order = np.argsort(roc.fp)
-    fp = roc.fp[order]
-    tp = roc.tp[order]
-    ax.plot(fp, tp, "-o", ms=3, lw=1.6)
+    ax.plot(roc.fp[order], roc.tp[order], "-o", ms=3, lw=1.6)
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(0.0, 1.0)
     ax.set_xlabel("False Positive Rate")
@@ -953,18 +1502,17 @@ def huge_plot_graph_matrix(
     if len(fit.path) == 0:
         raise PyHugeError("`fit.path` is empty.")
 
-    plt = _mpl_pyplot()
-    if ax is None:
-        _, ax = plt.subplots(1, 1)
-
     if index < 0:
         index = len(fit.path) + index
     if index < 0 or index >= len(fit.path):
         raise PyHugeError(f"`index` out of range: got {index}, path length={len(fit.path)}")
 
-    mat = fit.path[index]
-    dense = mat.toarray() if sparse.issparse(mat) else np.asarray(mat)
-    ax.imshow(dense, cmap="Greys", interpolation="nearest")
+    plt = _mpl_pyplot()
+    if ax is None:
+        _, ax = plt.subplots(1, 1)
+
+    mat = fit.path[index].toarray()
+    ax.imshow(mat, cmap="Greys", interpolation="nearest")
     if index < fit.lambda_path.size:
         title = f"Graph Matrix (idx={index}, lambda={fit.lambda_path[index]:.4g})"
     else:
@@ -986,23 +1534,7 @@ def huge_plot_network(
     edge_color: str = "#4d4d4d",
     min_abs_weight: float = 0.0,
 ) -> Any:
-    """Plot one estimated graph as a node-edge network.
-
-    Parameters
-    ----------
-    fit:
-        `HugeResult` containing graph path.
-    index:
-        Path index to visualize; supports negative indexing.
-    layout:
-        One of ``spring``, ``kamada_kawai``, ``circular``, ``spectral``, ``shell``.
-    with_labels:
-        Whether to draw node labels.
-    node_size, node_color, edge_color:
-        Visual styling parameters.
-    min_abs_weight:
-        Keep only edges with ``abs(weight) >= min_abs_weight``.
-    """
+    """Plot one estimated graph as a node-edge network."""
 
     if len(fit.path) == 0:
         raise PyHugeError("`fit.path` is empty.")
@@ -1014,16 +1546,9 @@ def huge_plot_network(
     if index < 0 or index >= len(fit.path):
         raise PyHugeError(f"`index` out of range: got {index}, path length={len(fit.path)}")
 
-    mat = fit.path[index]
-    dense = mat.toarray() if sparse.issparse(mat) else np.asarray(mat, dtype=float)
-    dense = np.asarray(dense, dtype=float)
-    if dense.ndim != 2 or dense.shape[0] != dense.shape[1]:
-        raise PyHugeError("Selected graph matrix must be square.")
-
-    # Keep symmetric adjacency and drop weak edges.
+    dense = fit.path[index].toarray().astype(float)
     dense = 0.5 * (dense + dense.T)
     if min_abs_weight > 0:
-        dense = dense.copy()
         dense[np.abs(dense) < min_abs_weight] = 0.0
 
     nx = _networkx_pkg()
@@ -1031,7 +1556,7 @@ def huge_plot_network(
     if ax is None:
         _, ax = plt.subplots(1, 1)
 
-    graph = nx.from_numpy_array(dense)
+    g = nx.from_numpy_array(dense)
     layout_map = {
         "spring": nx.spring_layout,
         "kamada_kawai": nx.kamada_kawai_layout,
@@ -1041,10 +1566,10 @@ def huge_plot_network(
     }
     if layout not in layout_map:
         raise PyHugeError(f"`layout` must be one of {sorted(layout_map)}.")
-    pos = layout_map[layout](graph)
 
+    pos = layout_map[layout](g)
     nx.draw_networkx(
-        graph,
+        g,
         pos=pos,
         ax=ax,
         with_labels=with_labels,
@@ -1052,9 +1577,8 @@ def huge_plot_network(
         node_color=node_color,
         edge_color=edge_color,
         width=1.2,
-        alpha=0.9,
+        alpha=1.0,
     )
-
     if index < fit.lambda_path.size:
         title = f"Network (idx={index}, lambda={fit.lambda_path[index]:.4g})"
     else:
@@ -1071,61 +1595,40 @@ def huge_plot(
     cur_num: int = 1,
     location: Optional[str] = None,
 ) -> Optional[str]:
-    """Run R ``huge.plot()`` for graph visualization.
+    """R ``huge.plot``-style visualization in native Python."""
 
-    Returns the output eps path when ``epsflag=True``; otherwise returns ``None``.
-    For headless environments, when ``epsflag=False`` this routes plotting through
-    a temporary PDF device and removes it afterwards.
-    """
-
-    g_dense = _to_dense_matrix(g, "g")
-    if g_dense.shape[0] != g_dense.shape[1]:
+    adj = _to_dense_matrix(g, "g")
+    if adj.shape[0] != adj.shape[1]:
         raise PyHugeError("`g` must be square.")
+
     cur_num = _ensure_positive_int("cur_num", cur_num)
     if not graph_name:
         raise PyHugeError("`graph_name` must be a non-empty string.")
-    if location is not None and not os.path.isdir(location):
-        raise PyHugeError("`location` must be an existing directory.")
 
-    env = _r_env()
-    ro = env["ro"]
+    fit = HugeResult(
+        method="plot",
+        lambda_path=np.asarray([1.0]),
+        sparsity=np.asarray([_adj_sparsity(adj != 0)]),
+        path=[sparse.csc_matrix((adj != 0).astype(float))],
+        cov_input=False,
+        data=np.asarray(adj, dtype=float),
+    )
 
-    kwargs: dict[str, Any] = {
-        "G": _py2r(g_dense),
-        "epsflag": bool(epsflag),
-        "graph.name": str(graph_name),
-        "cur.num": int(cur_num),
-    }
-    if location is not None:
-        kwargs["location"] = str(location)
-
-    pdf_fd: Optional[int] = None
-    pdf_path: Optional[str] = None
-    try:
-        if not epsflag:
-            pdf_fd, pdf_path = tempfile.mkstemp(prefix="pyhuge_plot_", suffix=".pdf")
-            os.close(pdf_fd)
-            pdf_fd = None
-            ro.r["pdf"](pdf_path)
-        env["huge_pkg"].huge_plot(**kwargs)
-    finally:
-        if not epsflag:
-            try:
-                ro.r["dev.off"]()
-            except Exception:
-                pass
-            if pdf_path and os.path.exists(pdf_path):
-                try:
-                    os.remove(pdf_path)
-                except OSError:
-                    pass
-            if pdf_fd is not None:
-                try:
-                    os.close(pdf_fd)
-                except OSError:
-                    pass
+    ax = huge_plot_network(fit, index=0)
+    plt = _mpl_pyplot()
 
     if not epsflag:
+        plt.close(ax.figure)
         return None
-    out_dir = location if location is not None else str(np.asarray(_r2py(ro.r["tempdir"]()))[0])
-    return os.path.join(out_dir, f"{graph_name}{cur_num}.eps")
+
+    if location is None:
+        out_dir = Path.cwd()
+    else:
+        out_dir = Path(location)
+        if not out_dir.is_dir():
+            raise PyHugeError("`location` must be an existing directory.")
+
+    out_path = out_dir / f"{graph_name}{int(cur_num)}.eps"
+    ax.figure.savefig(out_path, format="eps", dpi=150, bbox_inches="tight")
+    plt.close(ax.figure)
+    return str(out_path)

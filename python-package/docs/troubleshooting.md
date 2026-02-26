@@ -1,133 +1,74 @@
 # Troubleshooting
 
-## First diagnostic step (always run this first)
-
-Run:
+## First diagnostic command
 
 ```bash
 python -c "import pyhuge; print(pyhuge.test())"
 ```
 
-If this already prints `runtime=True`, your base runtime is healthy.
+If `runtime=True`, core deps are available.
 
-## Fast environment snapshot
+## Full environment snapshot
 
 ```bash
-python -c 'import sys,platform; print("python", sys.executable); print("machine", platform.machine())'
-R -q -e 'cat("R arch:", R.version$arch, "\n"); print(.libPaths()); suppressWarnings(print(packageVersion("huge")))'
+pyhuge-doctor
 ```
 
-This captures the most common mismatch causes in one pass.
+## Symptom -> cause -> fix
 
-## Symptom -> likely cause -> fix
+## `PyHugeError: Native runtime for pyhuge is unavailable`
 
-## `PyHugeError: rpy2 is required`
-
-Cause: `rpy2` is not installed in the active Python environment.
+Cause: one or more runtime deps missing (`numpy`, `scipy`, `scikit-learn`).
 
 Fix:
 
 ```bash
-pip install rpy2
+python -m pip install "pyhuge[runtime]"
 ```
 
-## `R package huge is not installed in current R library paths`
+## `scikit-learn is required for native mb/tiger` (or glasso)
 
-Cause: R package `huge` is missing from the R library path visible to the
-Python process.
+Cause: `scikit-learn` is missing in current environment.
 
 Fix:
 
 ```bash
-R -q -e 'install.packages("huge", repos="https://cloud.r-project.org")'
+python -m pip install scikit-learn
 ```
 
-If you use a custom R library path:
-
-```bash
-R_LIBS_USER=/path/to/Rlib R -q -e 'install.packages("huge", repos="https://cloud.r-project.org")'
-R_LIBS_USER=/path/to/Rlib python your_script.py
-```
-
-## Python imports `pyhuge`, but runtime calls still fail
-
-Cause: `python` command and `pip` command point to different environments.
+## Plotting import error (`matplotlib` / `networkx`)
 
 Fix:
 
 ```bash
-which python
-python -m pip show pyhuge
-python -c "import pyhuge; print(pyhuge.__file__)"
+python -m pip install "pyhuge[viz]"
 ```
 
-Use the same `python -m pip ...` pair consistently.
-
-## `rpy2` or `libR` architecture mismatch
-
-Typical error text:
-
-```bash
-incompatible architecture (have 'arm64', need 'x86_64')
-```
-
-Cause: Python and R architectures differ.
-
-`pyhuge` now performs an early architecture check and raises a direct
-`PyHugeError` with this mismatch summary, so you can fix it before long
-`rpy2` tracebacks.
-
-Fix:
-
-```bash
-python -c 'import platform; print(platform.machine())'
-R -q -e 'cat(R.version$arch, "\n")'
-```
-
-Use a Python interpreter matching your R build.
-On Apple Silicon with arm64 R, prefer `/opt/homebrew/bin/python3`.
-
-## Plotting warnings in restricted environments
-
-Set writable cache + headless backend:
+Headless environment:
 
 ```bash
 export MPLBACKEND=Agg
-export MPLCONFIGDIR=/tmp/mplconfig
-export XDG_CACHE_HOME=/tmp/xdg-cache
-mkdir -p "$MPLCONFIGDIR" "$XDG_CACHE_HOME"
 ```
 
-## `networkx is required for network plotting`
+## `error: externally-managed-environment` (PEP 668)
 
-Cause: visualization extra is missing.
-
-Fix:
+Use a virtual environment:
 
 ```bash
-pip install networkx matplotlib
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install "pyhuge[runtime]"
 ```
 
-or (source install):
+## `index out of range` when plotting
 
-```bash
-pip install -e ".[viz]"
-```
+Cause: `index` outside `fit.path` bounds.
 
-## `R_LIBS_USER` not visible in Python run
+Fix: use `index=-1` for the last graph or a valid index in `[0, len(fit.path)-1]`.
 
-Run Python with the same variable:
+## `criterion='ebic' requires a glasso fit`
 
-```bash
-R_LIBS_USER=/path/to/Rlib python your_script.py
-```
+Cause: EBIC was requested for non-glasso estimator.
 
-## Support checklist for issue reports
-
-Include:
-
-- output of `python -c "import pyhuge; print(pyhuge.test())"`
-- Python executable path
-- `R.version$arch`
-- `.libPaths()`
-- full traceback
+Fix: run `huge(..., method="glasso")` first, then `huge_select(..., criterion="ebic")`.

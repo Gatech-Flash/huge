@@ -3,18 +3,18 @@
 ## Usage
 
 ```python
-huge_npn(x, npn_func="shrinkage", verbose=True) -> np.ndarray
+huge_npn(x, npn_func="shrinkage", verbose=True) -> numpy.ndarray
 ```
 
 ## Description
 
-Nonparanormal transformation mapped to R `huge.npn()`.
+Native nonparanormal transformation.
 
 ## Key arguments
 
-- `x`: 2D numeric matrix
-- `npn_func`: one of `"shrinkage"`, `"truncation"`, `"skeptic"`
+- `npn_func`: `"shrinkage"`, `"truncation"`, `"skeptic"`
 
 ## Returns
 
-Transformed data matrix as `numpy.ndarray`.
+- transformed data matrix (`shrinkage`/`truncation`)
+- rank-based correlation matrix (`skeptic`)

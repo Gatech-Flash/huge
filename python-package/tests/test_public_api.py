@@ -1,4 +1,4 @@
-"""Public API smoke tests."""
+"""Public API smoke tests for pyhuge 0.3 native package."""
 
 from __future__ import annotations
 
@@ -7,48 +7,40 @@ import pytest
 import pyhuge
 
 
-def test_test_returns_status_when_rpy2_missing(monkeypatch):
-    monkeypatch.setattr(pyhuge, "_importlib_util", type("X", (), {"find_spec": staticmethod(lambda _: None)}))
-
+def test_test_returns_status_keys():
     status = pyhuge.test()
-
     assert status["python_import"] is True
-    assert status["rpy2"] is False
-    assert status["runtime"] is False
+    for k in ("numpy", "scipy", "sklearn", "native_extension", "runtime", "rpy2"):
+        assert k in status
 
 
-def test_test_raises_when_runtime_required_and_rpy2_missing(monkeypatch):
-    monkeypatch.setattr(pyhuge, "_importlib_util", type("X", (), {"find_spec": staticmethod(lambda _: None)}))
+def test_test_raises_when_runtime_required_and_missing(monkeypatch):
+    class _FakeUtil:
+        @staticmethod
+        def find_spec(name: str):
+            if name in {"numpy", "scipy", "sklearn"}:
+                return None
+            return object()
 
-    with pytest.raises(pyhuge.PyHugeError, match="rpy2 is required"):
+    monkeypatch.setattr(pyhuge, "_importlib_util", _FakeUtil)
+    with pytest.raises(pyhuge.PyHugeError, match="Native runtime for pyhuge is unavailable"):
         pyhuge.test(require_runtime=True)
 
 
-def test_test_reports_runtime_ready(monkeypatch):
-    monkeypatch.setattr(
-        pyhuge,
-        "_importlib_util",
-        type("X", (), {"find_spec": staticmethod(lambda _: object())}),
-    )
-    monkeypatch.setattr(pyhuge._core, "_r_env", lambda: {"ok": True})
-
-    status = pyhuge.test()
-
-    assert status["rpy2"] is True
-    assert status["runtime"] is True
-
-
-def test_test_raises_when_runtime_required_and_runtime_fails(monkeypatch):
-    monkeypatch.setattr(
-        pyhuge,
-        "_importlib_util",
-        type("X", (), {"find_spec": staticmethod(lambda _: object())}),
-    )
-
-    def _fail():
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(pyhuge._core, "_r_env", _fail)
-
-    with pytest.raises(pyhuge.PyHugeError, match="R runtime for pyhuge is unavailable"):
-        pyhuge.test(require_runtime=True)
+def test_public_symbols_exported():
+    required = {
+        "huge",
+        "huge_mb",
+        "huge_glasso",
+        "huge_ct",
+        "huge_tiger",
+        "huge_select",
+        "huge_npn",
+        "huge_generator",
+        "huge_inference",
+        "huge_roc",
+        "huge_stockdata",
+        "huge_plot",
+        "test",
+    }
+    assert required.issubset(set(pyhuge.__all__))

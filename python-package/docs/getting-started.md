@@ -1,44 +1,35 @@
 # Start Here (5 Minutes)
 
-This page is for first-time users.
+Goal: run one full graph-estimation flow and verify your local environment.
 
-Goal: run one `pyhuge` graph estimation end-to-end and know what to do when it
-fails.
-
-## 1. What pyhuge is
-
-`pyhuge` is not a pure-Python reimplementation.
-It calls the R package `huge` through `rpy2`.
-
-So your runtime has 3 required layers:
-
-1. Python
-2. R
-3. R package `huge`
-
-If any layer is missing, function calls fail.
-
-## 2. Install in the simplest way
+## 1. Install
 
 ```bash
 pip install pyhuge
 ```
 
-Then verify import and runtime:
+Or from source:
+
+```bash
+cd python-package
+pip install -e ".[runtime]"
+```
+
+## 2. Verify runtime
 
 ```bash
 python -c "import pyhuge; print(pyhuge.test())"
 ```
 
-Expected:
+Expected minimal status:
 
 - `python_import: True`
-- `rpy2: True`
+- `numpy: True`
+- `scipy: True`
+- `sklearn: True`
 - `runtime: True`
 
-If `runtime` is `False`, go to [Troubleshooting](troubleshooting.md).
-
-## 3. Run your first example
+## 3. First estimation
 
 ```python
 import numpy as np
@@ -56,16 +47,16 @@ print("selected lambda:", sel.opt_lambda)
 print("selected sparsity:", sel.opt_sparsity)
 ```
 
-## 4. Interpret output quickly
+## 4. Read outputs quickly
 
-- `fit.path`: list of adjacency matrices across regularization path
-- `fit.lambda_path`: regularization values aligned with `fit.path`
-- `sel.refit`: selected graph from model selection
+- `fit.path`: adjacency matrices along regularization path
+- `fit.lambda_path`: regularization sequence aligned with `fit.path`
+- `sel.refit`: selected graph matrix
 - `sel.opt_lambda`: selected regularization level
 
-## 5. Next pages
+## 5. Next
 
-- [Installation](installation.md): architecture checks and install modes
-- [Quick Start](quickstart.md): more API examples
-- [Beginner Workflow](beginner-workflow.md): a full practical workflow
-- [FAQ](faq.md): common beginner questions
+- [Installation](installation.md)
+- [Quick Start](quickstart.md)
+- [Beginner Workflow](beginner-workflow.md)
+- [Troubleshooting](troubleshooting.md)

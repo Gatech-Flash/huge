@@ -1,37 +1,49 @@
 # Contributing
 
-See [`python-package/CONTRIBUTING.md`](https://github.com/Gatech-Flash/huge/blob/master/python-package/CONTRIBUTING.md)
-for development environment setup and workflows.
-
-Quick commands:
+## Local setup
 
 ```bash
 cd python-package
 pip install -e ".[dev]"
-pytest
-mkdocs serve
 ```
 
-Docs strict build:
+## Run tests
+
+```bash
+pytest
+```
+
+## Run parity checks against R huge (optional)
+
+Requires local R with package `huge` installed.
+
+```bash
+cd python-package
+python scripts/r_parity_report.py --out parity_report.json
+```
+
+## Build docs
 
 ```bash
 mkdocs build --strict
 ```
 
-Run optional e2e tests with local R runtime:
+## Build release artifacts
 
 ```bash
-export R_LIBS_USER=/path/to/Rlib
-R CMD INSTALL /path/to/huge-repo
-pytest tests/test_e2e_optional.py -rA
-```
-
-Release commands:
-
-```bash
-python scripts/bump_version.py 0.2.0
 bash scripts/build_dist.sh
-bash scripts/build_docs.sh
 ```
 
-See `release.md` for full publishing flow.
+## Bump version
+
+```bash
+python scripts/bump_version.py 0.3.1
+bash scripts/release.sh 0.3.1
+```
+
+## Code principles
+
+- Keep public API aligned with huge-style semantics.
+- Keep dataclass fields backward-stable where possible.
+- Add tests for every new public behavior.
+- Document behavior changes in `CHANGELOG.md`.
