@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- Updated PyPI long description wording to remove stale "0.3 Native Line" phrasing.
+- Replaced README in-page anchor table of contents with absolute documentation links that work on PyPI.
+- Normalized release command examples in docs to use `<major.minor.patch>` placeholders.
+
+
 ## 0.3.2
 
 - Made C++ acceleration build optional at install time; falls back to pure Python if native build fails.

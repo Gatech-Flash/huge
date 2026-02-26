@@ -1,23 +1,21 @@
-# pyhuge Python Package (0.3 Native Line)
+# pyhuge Python Package
 
-`pyhuge` 0.3 is the native Python line for high-dimensional undirected graph
+`pyhuge` is a native Python package for high-dimensional undirected graph
 estimation and inference workflows inspired by `huge`.
 
-## Table of contents
+## Quick links
 
-- [Background](#background)
-- [Directory structure](#directory-structure)
-- [What this package provides](#what-this-package-provides)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Documentation](#documentation)
-- [Developer workflow](#developer-workflow)
-- [Citation](#citation)
+- PyPI: https://pypi.org/project/pyhuge/
+- Documentation home: https://gatech-flash.github.io/huge/
+- Getting started: https://gatech-flash.github.io/huge/getting-started/
+- Installation: https://gatech-flash.github.io/huge/installation/
+- API reference: https://gatech-flash.github.io/huge/api/
+- Function manual index: https://gatech-flash.github.io/huge/man/index/
+- Changelog: https://gatech-flash.github.io/huge/changelog/
 
 ## Background
 
-Compared with the earlier `rpy2`-bridge line, `pyhuge` 0.3 runs natively in
+Compared with the earlier `rpy2`-bridge line, `pyhuge` runs natively in
 Python and does not require an R runtime.
 
 ## Directory structure
@@ -121,8 +119,8 @@ mkdocs build --strict
 cd python-package
 pytest
 bash scripts/build_dist.sh
-python scripts/bump_version.py 0.3.1
-bash scripts/release.sh 0.3.1
+python scripts/bump_version.py <major.minor.patch>
+bash scripts/release.sh <major.minor.patch>
 ```
 
 ## Citation
