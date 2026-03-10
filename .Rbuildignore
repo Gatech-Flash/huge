@@ -6,8 +6,15 @@
 ^src/\.gitignore$
 ^vignettes/\.gitignore$
 ^\.Rlib($|/)
+^\.pydeps($|/)
 ^.*\.Rcheck$
 ^python-package$
+^config\.status$
+^config\.log$
+^\.DS_Store$
+^CMakeLists\.txt$
+^CLAUDE\.md$
+^\.claude($|/)
 cran-comments.md
 benchmark/*
 revdep/*

@@ -4,8 +4,7 @@
 
 - Native Python core (`pyhuge/core.py`)
 - NumPy/SciPy data model
-- scikit-learn-backed solvers for MB/glasso/tiger approximation path
-- Optional pybind11 C++ extension (`pyhuge._native_core`) for hot kernels
+- Native C++ kernels for MB/glasso/tiger (`pyhuge._native_core`)
 
 ## Data flow
 
@@ -23,8 +22,8 @@
 
 ## Known approximation boundaries
 
-- `tiger` currently uses a native approximation path and is not bitwise
-  equivalent to R TIGER internals.
+- Native and R implementations may still differ numerically on some datasets,
+  though core algorithm families are aligned.
 - Selection/inference implementations target practical parity, not strict
   numerical identity with R code paths.
 

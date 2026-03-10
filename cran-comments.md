@@ -3,7 +3,7 @@
 
 ## R CMD check results
 * `R CMD build` on the source directory: OK
-* `R CMD check --as-cran huge_1.4.tar.gz`: 0 ERROR, 1 WARNING, 3 NOTE
+* `R CMD check --as-cran huge_1.5.tar.gz`: 0 ERROR, 1 WARNING, 3 NOTE
 
 The WARNING/NOTEs are environment-specific on the local machine:
 * WARNING: missing external `checkbashisms` script
@@ -14,7 +14,7 @@ The WARNING/NOTEs are environment-specific on the local machine:
 There are no package-specific ERRORs/WARNINGs.
 
 ## Resubmission
-This release updates package metadata for version 1.4 and includes code quality and robustness improvements, including C++ and R-side bug fixes and performance optimizations.
+This release updates package metadata for version 1.5 and includes code quality and robustness improvements, including C++ and R-side bug fixes and performance optimizations.
 
 The maintainer has been updated to:
 Tuo Zhao <tourzhao@gatech.edu>

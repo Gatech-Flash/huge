@@ -32,9 +32,6 @@ pyhuge-doctor
 
 `runtime=True` means core dependencies are available.
 
-`native_extension` may be `False` on environments without a working C++ toolchain.
-In that case, `pyhuge` automatically falls back to pure Python runtime.
-
 ## Apple Silicon / architecture notes
 
 `pyhuge` 0.3 does not depend on R architecture, but Python/native wheels must

@@ -64,7 +64,6 @@
 #' L = huge.generator(graph="scale-free", vis = TRUE)
 #' @export
 huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL, g = NULL, prob = NULL, vis = FALSE, verbose = TRUE){
-  gcinfo(FALSE)
   if(verbose) cat("Generating data from the multivariate normal distribution with the", graph,"graph structure....")
   if(is.null(g)){
     g = 1
@@ -95,8 +94,7 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
   n.large = n.small+1
   g.list = c(rep(n.small,g.small),rep(n.large,g.large))
   g.ind = rep(c(1:g),g.list)
-  rm(g.large,g.small,n.small,n.large,g.list)
-  gc()
+
 
   # build the graph structure
   theta = matrix(0,d,d);
@@ -116,8 +114,6 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
        tmp2 = matrix(runif(length(tmp)^2,0,0.5),length(tmp),length(tmp))
        tmp2 = tmp2 + t(tmp2)
        theta[tmp,tmp][tmp2<prob] = 1
-       rm(tmp,tmp2)
-       gc()
     }
   }
   if(graph == "hub"){
@@ -127,8 +123,6 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
        tmp = which(g.ind==i)
        theta[tmp[1],tmp] = 1
        theta[tmp,tmp[1]] = 1
-       rm(tmp)
-       gc()
     }
   }
   if(graph == "random"){
@@ -139,8 +133,6 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
     tmp = tmp + t(tmp)
     theta[tmp < prob] = 1
     #theta[tmp >= tprob] = 0
-    rm(tmp)
-    gc()
   }
 
   if(graph == "scale-free"){
@@ -173,12 +165,8 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
   fullfig[3] = plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA,main = "Graph Pattern")
 
   fullfig[4] = image(sigmahat, col = gray.colors(256), main = "Empirical Matrix")
-  rm(fullfig,g,layout.grid)
-  gc()
   }
   if(verbose) cat("done.\n")
-  rm(vis,verbose)
-  gc()
 
   sim = list(data = x, sigma = sigma, sigmahat = sigmahat, omega = omega, theta = Matrix(theta,sparse = TRUE), sparsity= sum(theta)/(d*(d-1)), graph.type=graph)
   class(sim) = "sim"
@@ -210,7 +198,6 @@ print.sim = function(x, ...){
 #' @seealso \code{\link{huge.generator}} and \code{\link{huge}}
 #' @export
 plot.sim = function(x, ...){
-  gcinfo(FALSE)
      par = par(mfrow = c(2, 2), pty = "s", omi=c(0.3,0.3,0.3,0.3), mai = c(0.3,0.3,0.3,0.3))
      image(as.matrix(x$theta), col = gray.colors(256),  main = "Adjacency Matrix")
   image(x$sigma, col = gray.colors(256), main = "Covariance Matrix")
@@ -218,7 +205,5 @@ plot.sim = function(x, ...){
   layout.grid = layout.fruchterman.reingold(g)
 
   plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA,main = "Graph Pattern")
-  rm(g, layout.grid)
-  gc()
   image(x$sigmahat, col = gray.colors(256), main = "Empirical Covariance Matrix")
 }

@@ -9,12 +9,11 @@ import numpy as np
 import pytest
 
 
-HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
 HAS_MPL = importlib.util.find_spec("matplotlib") is not None
 HAS_NX = importlib.util.find_spec("networkx") is not None
 
 
-@pytest.mark.skipif(not (HAS_SKLEARN and HAS_MPL and HAS_NX), reason="requires sklearn+matplotlib+networkx")
+@pytest.mark.skipif(not (HAS_MPL and HAS_NX), reason="requires matplotlib+networkx")
 def test_rd_huge_examples_main_methods_and_plotting(tmp_path):
     import matplotlib
 
@@ -49,7 +48,6 @@ def test_rd_huge_examples_main_methods_and_plotting(tmp_path):
     assert out_png.exists() and out_png.stat().st_size > 0
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn")
 def test_rd_huge_select_examples_ric_stars_ebic():
     from pyhuge import huge, huge_generator, huge_select
 
@@ -114,7 +112,6 @@ def test_rd_huge_roc_example():
     assert 0.0 <= roc.auc <= 1.0
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn")
 def test_rd_huge_inference_examples():
     from pyhuge import huge, huge_generator, huge_inference
 

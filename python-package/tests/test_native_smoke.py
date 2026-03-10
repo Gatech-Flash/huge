@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import importlib.util
 
 from pyhuge import (
     huge,
@@ -16,9 +15,6 @@ from pyhuge import (
 )
 
 
-HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
-
-
 def test_native_ct_runs():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(60, 12))
@@ -28,7 +24,6 @@ def test_native_ct_runs():
     assert len(fit_ct.path) == 5
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="native mb/glasso requires scikit-learn")
 def test_native_mb_glasso_select_runs():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(60, 12))

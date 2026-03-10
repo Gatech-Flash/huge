@@ -6,4 +6,4 @@ Version history for pyhuge 0.3 is maintained in:
 
 Current release line:
 
-- `0.3.0`: initial native Python release line.
+- `0.3.3`: native-core alignment release (removed sklearn runtime dependency for `mb`/`tiger`/`glasso`).

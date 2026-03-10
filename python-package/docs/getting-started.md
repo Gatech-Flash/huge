@@ -26,7 +26,7 @@ Expected minimal status:
 - `python_import: True`
 - `numpy: True`
 - `scipy: True`
-- `sklearn: True`
+- `native_extension: True`
 - `runtime: True`
 
 ## 3. First estimation

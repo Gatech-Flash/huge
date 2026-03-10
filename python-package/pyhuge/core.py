@@ -6,7 +6,6 @@ from dataclasses import dataclass
 import math
 from pathlib import Path
 from typing import Any, Optional, Sequence
-import warnings
 
 from importlib import resources
 
@@ -368,13 +367,12 @@ def _ct_path_sparsity(path: list[sparse.csc_matrix]) -> np.ndarray:
     return np.asarray([float(p.nnz) / denom for p in path], dtype=float)
 
 
-def _require_sklearn(component: str) -> None:
-    try:
-        import sklearn  # noqa: F401
-    except Exception as exc:  # pragma: no cover
+def _require_native_core(component: str) -> None:
+    if _CPP is None:
         raise PyHugeError(
-            f"scikit-learn is required for native `{component}`. Install with `pip install scikit-learn`."
-        ) from exc
+            f"`{component}` requires native C++ core (`pyhuge._native_core`). "
+            "Reinstall pyhuge with extension build enabled."
+        )
 
 
 def _run_glasso(
@@ -383,88 +381,41 @@ def _run_glasso(
     scr: bool,
     cov_output: bool,
 ) -> tuple[list[sparse.csc_matrix], list[np.ndarray], Optional[list[np.ndarray]], np.ndarray, np.ndarray]:
-    if _CPP is not None:
-        try:
-            out = _CPP.hugeglasso(
-                np.asarray(s_mat, dtype=float),
-                np.asarray(lambda_path, dtype=float),
-                bool(scr),
-                bool(cov_output),
-            )
-            path_cube = np.asarray(out["path"], dtype=np.uint8)
-            icov_cube = np.asarray(out["icov"], dtype=float)
-            loglik = np.asarray(out["loglik"], dtype=float).reshape(-1)
-            df = np.asarray(out["df"], dtype=float).reshape(-1)
+    _require_native_core("glasso")
+    try:
+        out = _CPP.hugeglasso(
+            np.asarray(s_mat, dtype=float),
+            np.asarray(lambda_path, dtype=float),
+            bool(scr),
+            bool(cov_output),
+        )
+    except Exception as exc:
+        raise PyHugeError(f"native glasso backend failed: {exc}") from exc
 
-            path: list[sparse.csc_matrix] = []
-            icov: list[np.ndarray] = []
-            cov_list: list[np.ndarray] = []
-            for i in range(path_cube.shape[0]):
-                adj = path_cube[i] != 0
-                np.fill_diagonal(adj, False)
-                path.append(sparse.csc_matrix(adj.astype(float)))
-                icov.append(np.asarray(icov_cube[i], dtype=float))
-
-            cov_raw = out.get("cov", None)
-            if cov_output and cov_raw is not None:
-                cov_cube = np.asarray(cov_raw, dtype=float)
-                for i in range(cov_cube.shape[0]):
-                    cov_list.append(np.asarray(cov_cube[i], dtype=float))
-                cov_ret: Optional[list[np.ndarray]] = cov_list
-            else:
-                cov_ret = None
-
-            return path, icov, cov_ret, df, loglik
-        except Exception:
-            pass
-
-    _require_sklearn("glasso")
-    from sklearn.covariance import graphical_lasso
-    from sklearn.exceptions import ConvergenceWarning
+    path_cube = np.asarray(out["path"], dtype=np.uint8)
+    icov_cube = np.asarray(out["icov"], dtype=float)
+    loglik = np.asarray(out["loglik"], dtype=float).reshape(-1)
+    df = np.asarray(out["df"], dtype=float).reshape(-1)
 
     path: list[sparse.csc_matrix] = []
     icov: list[np.ndarray] = []
     cov_list: list[np.ndarray] = []
-    loglik = np.zeros(lambda_path.size, dtype=float)
-    df = np.zeros(lambda_path.size, dtype=float)
-
-    d = s_mat.shape[0]
-    stable_cov = (s_mat + s_mat.T) / 2.0
-
-    def _solve(cov_input: np.ndarray, lam: float, max_iter: int) -> tuple[np.ndarray, np.ndarray, bool]:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", ConvergenceWarning)
-            cov_est_, prec_est_ = graphical_lasso(cov_input, alpha=float(lam), max_iter=max_iter, tol=1e-4)
-        has_conv_warn = any(isinstance(w.message, ConvergenceWarning) for w in caught)
-        return cov_est_, prec_est_, has_conv_warn
-
-    for i, lam in enumerate(lambda_path):
-        jitter = 1e-4 * np.eye(d)
-        try:
-            cov_est, prec_est, has_warn = _solve(stable_cov, float(lam), 500)
-            if has_warn:
-                cov_est, prec_est, _ = _solve(stable_cov + jitter, float(lam), 1200)
-        except Exception:
-            cov_est, prec_est, _ = _solve(stable_cov + jitter, float(lam), 1200)
-
-        prec_est = (prec_est + prec_est.T) / 2.0
-        cov_est = (cov_est + cov_est.T) / 2.0
-
-        adj = np.abs(prec_est) > 1e-8
+    for i in range(path_cube.shape[0]):
+        adj = path_cube[i] != 0
         np.fill_diagonal(adj, False)
-
         path.append(sparse.csc_matrix(adj.astype(float)))
-        icov.append(prec_est)
-        cov_list.append(cov_est)
-        df[i] = np.count_nonzero(np.triu(adj, 1)) * 2.0
+        icov.append(np.asarray(icov_cube[i], dtype=float))
 
-        sign, logdet = np.linalg.slogdet(prec_est)
-        if sign <= 0:
-            loglik[i] = -np.inf
-        else:
-            loglik[i] = float(logdet - np.trace(stable_cov @ prec_est))
+    cov_raw = out.get("cov", None)
+    if cov_output and cov_raw is not None:
+        cov_cube = np.asarray(cov_raw, dtype=float)
+        for i in range(cov_cube.shape[0]):
+            cov_list.append(np.asarray(cov_cube[i], dtype=float))
+        cov_ret: Optional[list[np.ndarray]] = cov_list
+    else:
+        cov_ret = None
 
-    return path, icov, (cov_list if cov_output else None), df, loglik
+    return path, icov, cov_ret, df, loglik
 
 
 def _build_screen_idx(corr: np.ndarray, scr_num: int) -> np.ndarray:
@@ -483,64 +434,28 @@ def _run_mb(
     scr: bool,
     scr_num: Optional[int],
 ) -> tuple[list[sparse.csc_matrix], np.ndarray]:
-    if _CPP is not None:
-        try:
-            if scr:
-                if scr_num is None:
-                    raise PyHugeError("`scr=True` requires `scr_num` in native MB C++ core.")
-                idx_mat = _build_screen_idx(corr, scr_num)
-                out = _CPP.spmb_scr(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float), idx_mat)
-            else:
-                out = _CPP.spmb_graph(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float))
+    del x_data
+    _require_native_core("mb")
+    try:
+        if scr:
+            if scr_num is None:
+                raise PyHugeError("`scr=True` requires `scr_num` in native MB C++ core.")
+            idx_mat = _build_screen_idx(corr, scr_num)
+            out = _CPP.spmb_scr(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float), idx_mat)
+        else:
+            out = _CPP.spmb_graph(np.asarray(corr, dtype=float), np.asarray(lambda_path, dtype=float))
+    except Exception as exc:
+        raise PyHugeError(f"native mb backend failed: {exc}") from exc
 
-            beta = np.asarray(out["beta"], dtype=float)
-            df = np.asarray(out["df"], dtype=float)
-            nlam = beta.shape[0]
-
-            path: list[sparse.csc_matrix] = []
-            for li in range(nlam):
-                directed = np.abs(beta[li]) > 0
-                np.fill_diagonal(directed, False)
-                adj = _symmetrize(directed, sym)
-                path.append(sparse.csc_matrix(adj.astype(float)))
-            return path, df
-        except Exception:
-            pass
-
-    _require_sklearn("mb")
-    from sklearn.linear_model import lasso_path
-
-    x_std = _standardize(x_data)
-    _, d = x_std.shape
-    nlam = lambda_path.size
-    directed = np.zeros((nlam, d, d), dtype=bool)
-    df = np.zeros((d, nlam), dtype=float)
-
-    for j in range(d):
-        mask = np.ones(d, dtype=bool)
-        mask[j] = False
-        X = x_std[:, mask]
-        y = x_std[:, j]
-
-        alphas_out, coefs, _ = lasso_path(X, y, alphas=lambda_path, max_iter=4000)
-        alphas_out = np.asarray(alphas_out, dtype=float)
-        coefs = np.asarray(coefs, dtype=float)
-
-        if coefs.ndim == 1:
-            coefs = coefs[:, None]
-
-        if coefs.shape[1] != nlam or not np.allclose(alphas_out, lambda_path, rtol=1e-6, atol=1e-8):
-            idx = [int(np.argmin(np.abs(alphas_out - a))) for a in lambda_path]
-            coefs = coefs[:, idx]
-
-        for li in range(nlam):
-            nz = np.abs(coefs[:, li]) > 1e-8
-            directed[li, j, mask] = nz
-            df[j, li] = float(np.count_nonzero(nz))
+    beta = np.asarray(out["beta"], dtype=float)
+    df = np.asarray(out["df"], dtype=float)
+    nlam = beta.shape[0]
 
     path: list[sparse.csc_matrix] = []
     for li in range(nlam):
-        adj = _symmetrize(directed[li], sym)
+        directed = np.abs(beta[li]) > 0
+        np.fill_diagonal(directed, False)
+        adj = _symmetrize(directed, sym)
         path.append(sparse.csc_matrix(adj.astype(float)))
     return path, df
 
@@ -551,78 +466,24 @@ def _run_tiger(
     sym: str,
 ) -> tuple[list[sparse.csc_matrix], np.ndarray, Optional[list[np.ndarray]]]:
     x_std = _standardize(x_data)
-    if _CPP is not None:
-        try:
-            out = _CPP.spmb_graphsqrt(np.asarray(x_std, dtype=float), np.asarray(lambda_path, dtype=float))
-            beta = np.asarray(out["beta"], dtype=float)
-            df = np.asarray(out["df"], dtype=float)
-            icov_cube = np.asarray(out["icov"], dtype=float)
+    _require_native_core("tiger")
+    try:
+        out = _CPP.spmb_graphsqrt(np.asarray(x_std, dtype=float), np.asarray(lambda_path, dtype=float))
+    except Exception as exc:
+        raise PyHugeError(f"native tiger backend failed: {exc}") from exc
 
-            path: list[sparse.csc_matrix] = []
-            for li in range(beta.shape[0]):
-                directed = np.abs(beta[li]) > 0
-                np.fill_diagonal(directed, False)
-                adj = _symmetrize(directed, sym)
-                path.append(sparse.csc_matrix(adj.astype(float)))
-            icov = [np.asarray(icov_cube[i], dtype=float) for i in range(icov_cube.shape[0])]
-            return path, df, icov
-        except Exception:
-            pass
-
-    _require_sklearn("tiger")
-    from sklearn.linear_model import lasso_path
-
-    _, d = x_std.shape
-    nlam = lambda_path.size
-    directed = np.zeros((nlam, d, d), dtype=bool)
-    df = np.zeros((d, nlam), dtype=float)
-
-    for j in range(d):
-        mask = np.ones(d, dtype=bool)
-        mask[j] = False
-        X = x_std[:, mask]
-        y = x_std[:, j]
-
-        alphas_out, coefs, _ = lasso_path(X, y, alphas=lambda_path, max_iter=4000)
-        alphas_out = np.asarray(alphas_out, dtype=float)
-        coefs = np.asarray(coefs, dtype=float)
-
-        if coefs.ndim == 1:
-            coefs = coefs[:, None]
-
-        if coefs.shape[1] != nlam or not np.allclose(alphas_out, lambda_path, rtol=1e-6, atol=1e-8):
-            idx = [int(np.argmin(np.abs(alphas_out - a))) for a in lambda_path]
-            coefs = coefs[:, idx]
-
-        for li in range(nlam):
-            nz = np.abs(coefs[:, li]) > 1e-8
-            directed[li, j, mask] = nz
-            df[j, li] = float(np.count_nonzero(nz))
+    beta = np.asarray(out["beta"], dtype=float)
+    df = np.asarray(out["df"], dtype=float)
+    icov_cube = np.asarray(out["icov"], dtype=float)
 
     path: list[sparse.csc_matrix] = []
-    for li in range(nlam):
-        adj = _symmetrize(directed[li], sym)
+    for li in range(beta.shape[0]):
+        directed = np.abs(beta[li]) > 0
+        np.fill_diagonal(directed, False)
+        adj = _symmetrize(directed, sym)
         path.append(sparse.csc_matrix(adj.astype(float)))
-
-    cov_mat = np.asarray(np.cov(x_data, rowvar=False), dtype=float)
-    return path, df, _precision_path_from_cov(cov_mat, lambda_path)
-
-
-def _precision_path_from_cov(cov_mat: np.ndarray, lambda_path: np.ndarray) -> list[np.ndarray]:
-    d = cov_mat.shape[0]
-    eye = np.eye(d, dtype=float)
-    stable_cov = (cov_mat + cov_mat.T) / 2.0
-
-    out: list[np.ndarray] = []
-    for lam in lambda_path:
-        reg = stable_cov + float(lam) * eye
-        reg = (reg + reg.T) / 2.0
-        try:
-            prec = np.linalg.inv(reg)
-        except np.linalg.LinAlgError:
-            prec = np.linalg.pinv(reg, rcond=1e-7)
-        out.append((prec + prec.T) / 2.0)
-    return out
+    icov = [np.asarray(icov_cube[i], dtype=float) for i in range(icov_cube.shape[0])]
+    return path, df, icov
 
 
 def _edge_count(path: Sequence[sparse.csc_matrix]) -> np.ndarray:

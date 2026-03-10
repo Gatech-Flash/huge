@@ -15,7 +15,6 @@
 #' @export
 huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, verbose = TRUE)
 {
-  gcinfo(FALSE)
   n = nrow(x);
   d = ncol(x);
   fit = list()
@@ -31,12 +30,9 @@ huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, ve
     S = cor(x)
   }
 
-  rm(x)
-  gc()
   diag(S) = 0
   S = abs(S)
     S.rank = order(S,decreasing = TRUE)
-  gc()
 
   if(is.null(lambda))
   {
@@ -50,9 +46,6 @@ huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, ve
     density.all = ceiling(seq(density.min,density.max,length = nlambda))*2
     fit$sparsity = density.all/d/(d-1)
     fit$lambda = S[S.rank[density.all]]
-    rm(density.max,lambda.min.ratio,density.min,S)
-    gc()
-
     fit$path = list()
     for(i in 1:nlambda)
     {
@@ -64,8 +57,6 @@ huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, ve
               flush.console()
             }
     }
-    rm(density.all,nlambda,S.rank)
-    gc()
   }
 
   if(!is.null(lambda))
@@ -86,8 +77,6 @@ huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, ve
             }
     }
     fit$lambda = lambda
-    rm(S,lambda)
-    gc()
   }
 
   if(verbose)
@@ -95,6 +84,5 @@ huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, ve
         cat("Conducting the graph estimation via correlation thresholding (ct)....done.             \r\n")
         flush.console()
     }
-  gc()
   return(fit)
 }

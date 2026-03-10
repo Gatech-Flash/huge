@@ -10,7 +10,7 @@ Usually at least one core dependency is missing:
 
 - `numpy`
 - `scipy`
-- `scikit-learn`
+- `pyhuge._native_core` (native extension)
 
 Install with:
 

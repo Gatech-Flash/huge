@@ -33,7 +33,7 @@ Returned keys include:
 - `python_import`
 - `numpy`
 - `scipy`
-- `sklearn`
+- `sklearn` (compatibility field; not required for runtime)
 - `native_extension`
 - `runtime`
 - `rpy2` (compatibility field)

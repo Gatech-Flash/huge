@@ -8,12 +8,10 @@ import numpy as np
 import pytest
 
 
-HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
 HAS_MPL = importlib.util.find_spec("matplotlib") is not None
 HAS_NX = importlib.util.find_spec("networkx") is not None
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn")
 def test_e2e_mb_select_ric():
     from pyhuge import huge_mb, huge_select
 
@@ -47,7 +45,6 @@ def test_e2e_ct_stars():
     assert 0.0 <= sel.opt_sparsity <= 1.0
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn")
 def test_e2e_tiger_runs():
     from pyhuge import huge_tiger
 
@@ -60,7 +57,6 @@ def test_e2e_tiger_runs():
     assert fit.icov is not None
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn")
 def test_e2e_npn_glasso_ebic():
     from pyhuge import huge_glasso, huge_npn, huge_select
 
@@ -95,7 +91,7 @@ def test_e2e_generator_roc_inference():
     assert 0.0 <= inf.error <= 1.0
 
 
-@pytest.mark.skipif(not (HAS_SKLEARN and HAS_MPL and HAS_NX), reason="requires sklearn+matplotlib+networkx")
+@pytest.mark.skipif(not (HAS_MPL and HAS_NX), reason="requires matplotlib+networkx")
 def test_e2e_summary_and_network_plot():
     from pyhuge import huge_glasso, huge_plot_network, huge_select, huge_select_summary, huge_summary
 

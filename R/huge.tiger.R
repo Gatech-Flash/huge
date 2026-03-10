@@ -16,7 +16,6 @@
 #' @export
 huge.tiger = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL, sym = "or", verbose = TRUE)
 {
-	gcinfo(FALSE)
 	n = nrow(x);
 	d = ncol(x);
 	fit = list()
@@ -32,8 +31,6 @@ huge.tiger = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL,
 		S = cor(x)
 	}
 
-	gc()
-
 	if(!is.null(lambda)) nlambda = length(lambda)
 	if(is.null(lambda))
 	{
@@ -44,13 +41,11 @@ huge.tiger = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL,
 		lambda.max = max(max(S-diag(d)),-min(S-diag(d)))
 		lambda.min = lambda.min.ratio*lambda.max
 		lambda = exp(seq(log(lambda.max), log(lambda.min), length = nlambda))
-		rm(lambda.max,lambda.min,lambda.min.ratio)
-		gc()
 	}
 
 	if(verbose)
 	{
-	  cat("Conducting graph estimation through a tunning-insensitive approach(tiger)....")
+	  cat("Conducting graph estimation through a tuning-insensitive approach (tiger)....")
 	  flush.console()
 	}
 	fit$idx_mat = NULL
@@ -87,8 +82,6 @@ huge.tiger = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL,
 		fit$sparsity[i] = sum(fit$path[[i]])/d/(d-1)
 	}
 	fit$icov = out$icov
- 	rm(x, G, out)
-
  	fit$lambda = lambda
 
 	if(verbose)
@@ -97,7 +90,5 @@ huge.tiger = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL,
       flush.console()
   }
 
- 	rm(verbose,nlambda)
- 	gc()
  	return(fit)
 }

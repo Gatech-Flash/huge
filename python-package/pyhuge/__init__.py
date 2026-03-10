@@ -1,4 +1,4 @@
-"""pyhuge 0.3 native package."""
+"""pyhuge 0.8 native package."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ __all__ = [
     "test",
 ]
 
-__version__ = "0.3.3"
+__version__ = "0.8.0"
 
 
 def test(require_runtime: bool = False) -> dict[str, bool]:
@@ -80,10 +80,11 @@ def test(require_runtime: bool = False) -> dict[str, bool]:
         "rpy2": _importlib_util.find_spec("rpy2") is not None,
         "numpy": _importlib_util.find_spec("numpy") is not None,
         "scipy": _importlib_util.find_spec("scipy") is not None,
+        # Compatibility field; no longer required for runtime.
         "sklearn": _importlib_util.find_spec("sklearn") is not None,
         "native_extension": getattr(_core, "_CPP", None) is not None,
     }
-    status["runtime"] = bool(status["numpy"] and status["scipy"] and status["sklearn"])
+    status["runtime"] = bool(status["numpy"] and status["scipy"] and status["native_extension"])
 
     if require_runtime and not status["runtime"]:
         raise PyHugeError(

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -35,7 +34,6 @@ def main() -> int:
         "config": {"seed": args.seed, "n": args.n, "d": args.d},
         "environment": {
             "has_r_huge": has_r_huge(),
-            "has_sklearn": importlib.util.find_spec("sklearn") is not None,
         },
     }
 
@@ -69,25 +67,22 @@ def main() -> int:
         "opt_lambda_r": float(r_ct["opt_lambda"]),
     }
 
-    if report["environment"]["has_sklearn"]:
-        lam_gl = np.geomspace(0.5, 0.05, 8)
-        r_gl = run_r_glasso_reference(x, lam_gl)
-        n_gl = huge(x, method="glasso", lambda_=lam_gl, verbose=False)
-        s_gl = huge_select(n_gl, criterion="ebic", verbose=False)
+    lam_gl = np.geomspace(0.5, 0.05, 8)
+    r_gl = run_r_glasso_reference(x, lam_gl)
+    n_gl = huge(x, method="glasso", lambda_=lam_gl, verbose=False)
+    s_gl = huge_select(n_gl, criterion="ebic", verbose=False)
 
-        gl_edges_r = np.asarray(r_gl["edges"], dtype=float)
-        gl_edges_n = _edge_counts(n_gl.path)
-        report["glasso"] = {
-            "lambda_max_abs": float(np.max(np.abs(n_gl.lambda_path - r_gl["lambda"]))),
-            "sparsity_mean_abs": float(np.mean(np.abs(n_gl.sparsity - r_gl["sparsity"]))),
-            "edge_mean_abs_norm": float(np.mean(np.abs(gl_edges_n - gl_edges_r)) / max_edges),
-            "opt_index_native": int(s_gl.opt_index or 1),
-            "opt_index_r": int(r_gl["opt_index"]),
-            "opt_lambda_native": float(s_gl.opt_lambda),
-            "opt_lambda_r": float(r_gl["opt_lambda"]),
-        }
-    else:
-        report["glasso"] = {"skipped": True, "reason": "scikit-learn is unavailable"}
+    gl_edges_r = np.asarray(r_gl["edges"], dtype=float)
+    gl_edges_n = _edge_counts(n_gl.path)
+    report["glasso"] = {
+        "lambda_max_abs": float(np.max(np.abs(n_gl.lambda_path - r_gl["lambda"]))),
+        "sparsity_mean_abs": float(np.mean(np.abs(n_gl.sparsity - r_gl["sparsity"]))),
+        "edge_mean_abs_norm": float(np.mean(np.abs(gl_edges_n - gl_edges_r)) / max_edges),
+        "opt_index_native": int(s_gl.opt_index or 1),
+        "opt_index_r": int(r_gl["opt_index"]),
+        "opt_lambda_native": float(s_gl.opt_lambda),
+        "opt_lambda_r": float(r_gl["opt_lambda"]),
+    }
 
     text = json.dumps(report, indent=2)
     print(text)

@@ -18,7 +18,7 @@ pyhuge-doctor
 
 ## `PyHugeError: Native runtime for pyhuge is unavailable`
 
-Cause: one or more runtime deps missing (`numpy`, `scipy`, `scikit-learn`).
+Cause: one or more runtime deps missing (`numpy`, `scipy`, native extension).
 
 Fix:
 
@@ -26,14 +26,14 @@ Fix:
 python -m pip install "pyhuge[runtime]"
 ```
 
-## `scikit-learn is required for native mb/tiger` (or glasso)
+## `... requires native C++ core (pyhuge._native_core)`
 
-Cause: `scikit-learn` is missing in current environment.
+Cause: native extension is missing or failed to load in current environment.
 
 Fix:
 
 ```bash
-python -m pip install scikit-learn
+python -m pip install --force-reinstall pyhuge
 ```
 
 ## Plotting import error (`matplotlib` / `networkx`)

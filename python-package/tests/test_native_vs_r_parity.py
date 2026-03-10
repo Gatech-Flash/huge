@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import numpy as np
 import pytest
 
@@ -18,7 +16,6 @@ from pyhuge.parity import (
 
 
 HAS_R_HUGE = has_r_huge()
-HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
 
 
 def _edge_counts(path) -> np.ndarray:
@@ -61,7 +58,6 @@ def test_parity_ct_default_rank_path():
 
 
 @pytest.mark.skipif(not HAS_R_HUGE, reason="requires local R with package huge")
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn for native glasso")
 def test_parity_glasso_path_and_ebic_selection():
     rng = np.random.default_rng(321)
     x = rng.normal(size=(120, 20))
@@ -78,7 +74,7 @@ def test_parity_glasso_path_and_ebic_selection():
     edge_gap = np.mean(np.abs(_edge_counts(fit.path) - r_ref["edges"])) / max_edges
     sparsity_gap = float(np.mean(np.abs(fit.sparsity - r_ref["sparsity"])))
 
-    # Glasso backends differ (R huge vs sklearn solver); enforce coarse parity only.
+    # Implementations are aligned but not strictly bitwise-identical; enforce coarse parity.
     assert edge_gap <= 0.25
     assert sparsity_gap <= 0.25
     assert abs((sel.opt_index or 1) - int(r_ref["opt_index"])) <= 4

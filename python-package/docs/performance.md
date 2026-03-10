@@ -46,6 +46,6 @@ python scripts/r_parity_report.py --out parity_report.json
 Current behavior:
 
 - `ct + stars` parity is evaluated by default.
-- `glasso + ebic` parity is included when `scikit-learn` is installed.
+- `glasso + ebic` parity is evaluated via the native C++ backend.
 
 Use the JSON output to track drift after solver or selection changes.

@@ -4,18 +4,14 @@
 
 <h4 align="center">General Package for High-Dimensional Undirected Graph Estimation and Inference (R + Python)</h4>
 
-___Huge___ (High-Dimensional Undirected Graph Estimation) is a general project
-for sparse graphical model estimation and inference in high dimensions. The R
-package is backed by C++/RcppEigen and the Python package provides a native
-Python implementation with optional C++ acceleration.
+___Huge___ (High-Dimensional Undirected Graph Estimation) is a general project for sparse graphical model estimation and inference in high dimensions. The core algorithm is implemented in C++ with Rcpp for portable high performance linear algebra.
 
 This repository provides two package variants:
 
 - R package: `huge` (native R interface, available on CRAN)
-- Python package: `pyhuge` (native Python package, available on PyPI)
+- Python package: `pyhuge` (native Python interface with shared C++ core)
 
-Both variants target the same modeling pipeline, including graph estimation,
-model selection, and inferential analysis.
+Both variants share the same C++ core and target the same modeling pipeline, including graph estimation, model selection, and inferential analysis.
 
 ## Package Variants
 
@@ -84,7 +80,7 @@ library(huge)
 ## Python Package (`pyhuge`)
 
 This repository includes a native Python package under `python-package/`.
-`pyhuge` 0.3 does not require `rpy2` or an R runtime.
+It shares the same C++ core as the R package for portable high performance.
 
 ### Python package location
 
@@ -95,23 +91,23 @@ This repository includes a native Python package under `python-package/`.
 ### Python installation
 
 ```bash
-pip install pyhuge
-pip install "pyhuge[runtime]"
-python -c "import pyhuge; print(pyhuge.test(require_runtime=True))"
-pyhuge-doctor
+git clone https://github.com/Gatech-Flash/huge.git
+cd huge/python-package
+pip install -e .
+python -c "import pyhuge; print(pyhuge.test())"
 ```
 
 Optional extras:
 
 ```bash
-pip install "pyhuge[viz]"      # matplotlib + networkx
-pip install "pyhuge[dev]"      # tests + docs + release tooling
+pip install -e ".[viz]"      # matplotlib + networkx
+pip install -e ".[dev]"      # tests + docs + release tooling
 ```
 
 ### Python documentation website and CI
 
-- Docs site: <https://gatech-flash.github.io/huge/>
-- Python tests workflow: `.github/workflows/python-package-tests.yml`
+- Docs site: <https://tourzhao.github.io/huge/>
+- Python tests workflow: `.github/workflows/python-wrapper-tests.yml`
 - Python docs workflow: `.github/workflows/python-package-docs.yml`
 - Python release workflow: `.github/workflows/python-package-release.yml`
 
@@ -163,7 +159,7 @@ Huge significantly outperforms clime, QUIC and original huge in timing performan
       <td><center>Huge tiger</center></td>
       <td><center>1.88</center></td>
     <tr>
-      <td><center>Huge v1.2.7</center></td>
+      <td><center>Huge (CRAN 1.2.7)</center></td>
       <td><center>1.80</center></td>
     </tr>
 	<tr>

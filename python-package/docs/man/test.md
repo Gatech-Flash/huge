@@ -17,7 +17,7 @@ Dictionary with keys including:
 - `python_import`
 - `numpy`
 - `scipy`
-- `sklearn`
+- `sklearn` (compatibility field)
 - `native_extension`
 - `runtime`
 - `rpy2` (compatibility field)

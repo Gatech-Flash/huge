@@ -32,7 +32,6 @@
 #' huge.plot(L$theta, epsflag = TRUE, cur.num = 5, location = tempdir())
 #' @export
 huge.plot = function(G, epsflag = FALSE, graph.name = "default", cur.num = 1, location=NULL){
-  gcinfo(FALSE)
   if(missing(location))  location = tempdir()
   oldlocation = getwd()
   setwd(location)
@@ -42,8 +41,6 @@ huge.plot = function(G, epsflag = FALSE, graph.name = "default", cur.num = 1, lo
   if(epsflag == TRUE)  postscript(paste(paste(graph.name, cur.num, sep=""), "eps", sep="."), width = 8.0, height = 8.0)
     par(mfrow = c(1,1))
   plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=2, vertex.label=NA)
-  rm(g,location)
-  gc()
   if(epsflag == TRUE) dev.off()
   setwd(oldlocation)
 }

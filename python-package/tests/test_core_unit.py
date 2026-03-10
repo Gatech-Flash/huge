@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import numpy as np
 import pytest
 from scipy import sparse
 
 from pyhuge import core
-
-
-HAS_SKLEARN = importlib.util.find_spec("sklearn") is not None
 
 
 def test_method_wrappers_route_method(monkeypatch):
@@ -64,7 +59,6 @@ def test_stockdata_loader_shape():
     assert stock.info.shape == (452, 3)
 
 
-@pytest.mark.skipif(not HAS_SKLEARN, reason="requires scikit-learn")
 def test_ric_select_opt_index_is_one_based():
     rng = np.random.default_rng(2)
     x = rng.normal(size=(80, 12))

@@ -25,8 +25,8 @@ If you are new, follow this order:
 
 `pyhuge` 0.3 is native Python:
 
-- Core logic in Python + NumPy/SciPy/scikit-learn
-- Optional C++ acceleration module (`pyhuge._native_core`) via pybind11
+- Core logic in Python + NumPy/SciPy
+- Native C++ kernels (`pyhuge._native_core`) for `mb`/`glasso`/`tiger`
 - No R runtime dependency
 
 ## Documentation map

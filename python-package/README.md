@@ -1,22 +1,24 @@
 # pyhuge Python Package
 
-`pyhuge` is a native Python package for high-dimensional undirected graph
-estimation and inference workflows inspired by `huge`.
+`pyhuge` is the native Python package for high-dimensional undirected graph
+estimation and inference, sharing the same C++ core as the R `huge` package.
 
-## Quick links
+## Table of contents
 
-- PyPI: https://pypi.org/project/pyhuge/
-- Documentation home: https://gatech-flash.github.io/huge/
-- Getting started: https://gatech-flash.github.io/huge/getting-started/
-- Installation: https://gatech-flash.github.io/huge/installation/
-- API reference: https://gatech-flash.github.io/huge/api/
-- Function manual index: https://gatech-flash.github.io/huge/man/index/
-- Changelog: https://gatech-flash.github.io/huge/changelog/
+- [Background](#background)
+- [Directory structure](#directory-structure)
+- [What this package provides](#what-this-package-provides)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Documentation](#documentation)
+- [Developer workflow](#developer-workflow)
+- [Citation](#citation)
 
 ## Background
 
-Compared with the earlier `rpy2`-bridge line, `pyhuge` runs natively in
-Python and does not require an R runtime.
+`pyhuge` runs natively in Python with a shared C++ backend and does not
+require an R runtime.
 
 ## Directory structure
 
@@ -40,7 +42,8 @@ Python and does not require an R runtime.
 ## Requirements
 
 - Python `>=3.9`
-- Runtime packages: `numpy`, `scipy`, `scikit-learn`
+- Runtime packages: `numpy`, `scipy`
+- Native extension: `pyhuge._native_core` is required for `mb`, `tiger`, `glasso`
 
 Optional:
 
@@ -71,9 +74,6 @@ Runtime check:
 python -c "import pyhuge; print(pyhuge.test())"
 pyhuge-doctor
 ```
-
-If native C++ acceleration cannot be built on your machine, `pyhuge` falls back
-to pure Python automatically.
 
 ## Usage
 
@@ -119,8 +119,8 @@ mkdocs build --strict
 cd python-package
 pytest
 bash scripts/build_dist.sh
-python scripts/bump_version.py <major.minor.patch>
-bash scripts/release.sh <major.minor.patch>
+python scripts/bump_version.py 0.8.1
+bash scripts/release.sh 0.8.1
 ```
 
 ## Citation
