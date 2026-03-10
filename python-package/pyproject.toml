@@ -8,7 +8,7 @@ version = "0.8.0"
 description = "Native Python package for high-dimensional undirected graph estimation"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "GPL-2.0-only" }
+license = "GPL-2.0-only"
 authors = [
   { name = "Tuo Zhao", email = "tourzhao@gatech.edu" }
 ]
@@ -18,7 +18,6 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Mathematics",
-  "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
 ]
 dependencies = [
   "numpy>=1.23",
