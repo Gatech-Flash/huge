@@ -2,5 +2,5 @@
 ## no user-facing library. The include path to headers is already set by R.
 #PKG_LIBS =
 
-PKG_CXXFLAGS = @OPENMP_CXXFLAGS@ -DSTRICT_R_HEADERS -I../include
+PKG_CXXFLAGS = @OPENMP_CXXFLAGS@ -DSTRICT_R_HEADERS -I../inst/include
 PKG_LIBS = @OPENMP_CXXFLAGS@ $(BLAS_LIBS) $(FLIBS)
