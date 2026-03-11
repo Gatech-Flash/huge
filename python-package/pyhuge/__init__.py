@@ -66,7 +66,7 @@ __all__ = [
     "test",
 ]
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 
 def test(require_runtime: bool = False) -> dict[str, bool]:
