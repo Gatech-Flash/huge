@@ -1,16 +1,24 @@
 # Quick Start
 
-## 0) Runtime check
+## 0) Install & verify
+
+```bash
+pip install pyhuge
+```
+
+Or from source:
+
+```bash
+cd python-package
+pip install -e ".[runtime]"
+```
+
+Verify runtime:
 
 ```python
 import pyhuge
 print(pyhuge.test())
-```
-
-If you want strict enforcement:
-
-```python
-import pyhuge
+# require_runtime=True raises if native extension is unavailable
 pyhuge.test(require_runtime=True)
 ```
 

@@ -16,32 +16,13 @@
 #' @export
 huge.tiger = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL, sym = "or", verbose = TRUE)
 {
-	n = nrow(x);
-	d = ncol(x);
+	inp = .huge_preprocess(x, verbose)
+	x = inp$x; S = inp$S; n = inp$n; d = inp$d
 	fit = list()
-	fit$cov.input = isSymmetric(x);
-	if(fit$cov.input)
-	{
-		if(verbose) cat("The input is identified as the covariance matrix.\n")
-		S = cov2cor(x);
-	}
-	if(!fit$cov.input)
-	{
-		x = scale(x)
-		S = cor(x)
-	}
+	fit$cov.input = inp$cov.input
 
-	if(!is.null(lambda)) nlambda = length(lambda)
-	if(is.null(lambda))
-	{
-		if(is.null(nlambda))
-			nlambda = 10
-		if(is.null(lambda.min.ratio))
-			lambda.min.ratio = 0.1
-		lambda.max = max(max(S-diag(d)),-min(S-diag(d)))
-		lambda.min = lambda.min.ratio*lambda.max
-		lambda = exp(seq(log(lambda.max), log(lambda.min), length = nlambda))
-	}
+	lam = .huge_default_lambda(S, d, nlambda, lambda.min.ratio, lambda)
+	lambda = lam$lambda; nlambda = lam$nlambda
 
 	if(verbose)
 	{

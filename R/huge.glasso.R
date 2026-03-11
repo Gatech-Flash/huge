@@ -31,17 +31,8 @@ huge.glasso = function(x, lambda = NULL, lambda.min.ratio = NULL, nlambda = NULL
     S = cor(x)
   }
   if(is.null(scr)) scr = FALSE
-  if(!is.null(lambda)) nlambda = length(lambda)
-  if(is.null(lambda))
-  {
-    if(is.null(nlambda))
-      nlambda = 10
-    if(is.null(lambda.min.ratio))
-      lambda.min.ratio = 0.1
-    lambda.max = max(max(S-diag(d)),-min(S-diag(d)))
-    lambda.min = lambda.min.ratio*lambda.max
-    lambda = exp(seq(log(lambda.max), log(lambda.min), length = nlambda))
-  }
+  lam = .huge_default_lambda(S, d, nlambda, lambda.min.ratio, lambda)
+  lambda = lam$lambda; nlambda = lam$nlambda
 
   fit = .Call("_huge_hugeglasso",S,lambda,scr,verbose,cov.output,PACKAGE="huge")
 

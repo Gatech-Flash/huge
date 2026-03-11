@@ -479,16 +479,10 @@ MBResult mb(const double* S_data, int d,
                         for (int k = 0; k < size_a; k++)
                             r -= cm(S_data, d, j, idx_a[k]) * w0[idx_a[k]];
 
-                        if (r > ilambda) {
-                            w1[j] = r - ilambda;
+                        w1[j] = threshold_l1(r, ilambda);
+                        if (w1[j] != 0) {
                             idx_a[size_a++] = j;
                             idx_i[j] = 0;
-                        } else if (r < -ilambda) {
-                            w1[j] = r + ilambda;
-                            idx_a[size_a++] = j;
-                            idx_i[j] = 0;
-                        } else {
-                            w1[j] = 0;
                         }
                         w0[j] = w1[j];
                     }
@@ -505,15 +499,8 @@ MBResult mb(const double* S_data, int d,
                         for (int k = 0; k < size_a; k++)
                             r -= cm(S_data, d, w_idx, idx_a[k]) * w0[idx_a[k]];
 
-                        if (r > ilambda) {
-                            w1[w_idx] = r - ilambda;
-                            tmp2 += std::fabs(w1[w_idx]);
-                        } else if (r < -ilambda) {
-                            w1[w_idx] = r + ilambda;
-                            tmp2 += std::fabs(w1[w_idx]);
-                        } else {
-                            w1[w_idx] = 0;
-                        }
+                        w1[w_idx] = threshold_l1(r, ilambda);
+                        tmp2 += std::fabs(w1[w_idx]);
                         tmp1 += std::fabs(w1[w_idx] - w0[w_idx]);
                         w0[w_idx] = w1[w_idx];
                     }
@@ -588,16 +575,10 @@ MBResult mb_scr(const double* S_data, int d,
                         for (int k = 0; k < size_a; k++)
                             r -= cm(S_data, d, w_idx, idx_a[k]) * w0[idx_a[k]];
 
-                        if (r > ilambda) {
-                            w1[w_idx] = r - ilambda;
+                        w1[w_idx] = threshold_l1(r, ilambda);
+                        if (w1[w_idx] != 0) {
                             idx_a[size_a++] = w_idx;
                             idx_i_local[j] = -1;
-                        } else if (r < -ilambda) {
-                            w1[w_idx] = r + ilambda;
-                            idx_a[size_a++] = w_idx;
-                            idx_i_local[j] = -1;
-                        } else {
-                            w1[w_idx] = 0;
                         }
                         w0[w_idx] = w1[w_idx];
                     }
@@ -614,15 +595,8 @@ MBResult mb_scr(const double* S_data, int d,
                         for (int k = 0; k < size_a; k++)
                             r -= cm(S_data, d, w_idx, idx_a[k]) * w0[idx_a[k]];
 
-                        if (r > ilambda) {
-                            w1[w_idx] = r - ilambda;
-                            tmp2 += std::fabs(w1[w_idx]);
-                        } else if (r < -ilambda) {
-                            w1[w_idx] = r + ilambda;
-                            tmp2 += std::fabs(w1[w_idx]);
-                        } else {
-                            w1[w_idx] = 0;
-                        }
+                        w1[w_idx] = threshold_l1(r, ilambda);
+                        tmp2 += std::fabs(w1[w_idx]);
                         tmp1 += std::fabs(w1[w_idx] - w0[w_idx]);
                         w0[w_idx] = w1[w_idx];
                     }
@@ -676,7 +650,7 @@ TigerResult tiger(const double* data_colmajor, int n, int d,
     {
     #endif
     std::vector<double> Xb(n, 0.0), r_vec(n, 0.0), grad(d, 0.0), w1(d, 0.0);
-    std::vector<double> Y(n, 0.0), gr(d, 0.0), wXX(n, 0.0);
+    std::vector<double> Y(n, 0.0), gr(d, 0.0);
     std::vector<double> Xb_master(n, 0.0), w1_master(d, 0.0);
     std::vector<int> actset_indcat(d, 0), actset_indcat_master(d, 0);
     std::vector<int> actset_idx;

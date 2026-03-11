@@ -92,6 +92,32 @@ static py::dict py_hugeglasso(py::array_t<double, py::array::c_style | py::array
     return out;
 }
 
+// Helper: convert ColResult columns to dense beta[nlambda,d,d] + df[d,nlambda]
+static std::pair<py::array_t<double>, py::array_t<double>>
+columns_to_dense(const std::vector<huge::ColResult>& columns, int d, int nlambda) {
+    auto beta = py::array_t<double>({nlambda, d, d});
+    auto df = py::array_t<double>({d, nlambda});
+    std::fill_n(static_cast<double*>(beta.request().ptr), static_cast<size_t>(nlambda) * d * d, 0.0);
+    std::fill_n(static_cast<double*>(df.request().ptr), static_cast<size_t>(d) * nlambda, 0.0);
+    auto B = beta.mutable_unchecked<3>();
+    auto DF = df.mutable_unchecked<2>();
+
+    for (int m = 0; m < d; m++) {
+        const auto& col = columns[m];
+        for (size_t j = 0; j < col.vals.size(); j++) {
+            int encoded = col.indices[j];
+            B(encoded / d, m, encoded % d) = col.vals[j];
+        }
+        for (int i = 0; i < nlambda; i++) {
+            int nnz = 0;
+            for (int j = 0; j < d; j++)
+                if (std::fabs(B(i, m, j)) > 0.0) nnz++;
+            DF(m, i) = static_cast<double>(nnz);
+        }
+    }
+    return {beta, df};
+}
+
 // ---- MB binding ----
 
 static py::dict py_spmb_graph(py::array_t<double, py::array::c_style | py::array::forcecast> corr,
@@ -105,31 +131,8 @@ static py::dict py_spmb_graph(py::array_t<double, py::array::c_style | py::array
     for (int i = 0; i < nlambda; i++) lam_vec[i] = lam(i);
 
     auto res = huge::mb(S.data(), d, lam_vec.data(), nlambda);
+    auto [beta, df] = columns_to_dense(res.columns, d, nlambda);
 
-    // Convert to dense beta[nlambda, d, d] + df[d, nlambda]
-    auto beta = py::array_t<double>({nlambda, d, d});
-    auto df = py::array_t<double>({d, nlambda});
-    std::fill_n(static_cast<double*>(beta.request().ptr), static_cast<size_t>(nlambda) * d * d, 0.0);
-    std::fill_n(static_cast<double*>(df.request().ptr), static_cast<size_t>(d) * nlambda, 0.0);
-    auto B = beta.mutable_unchecked<3>();
-    auto DF = df.mutable_unchecked<2>();
-
-    for (int m = 0; m < d; m++) {
-        const auto& col = res.columns[m];
-        for (size_t j = 0; j < col.vals.size(); j++) {
-            int encoded = col.indices[j];
-            int lam_idx = encoded / d;
-            int var_idx = encoded % d;
-            B(lam_idx, m, var_idx) = col.vals[j];
-        }
-        // Compute df per (m, lambda)
-        for (int i = 0; i < nlambda; i++) {
-            int nnz = 0;
-            for (int j = 0; j < d; j++)
-                if (std::fabs(B(i, m, j)) > 0.0) nnz++;
-            DF(m, i) = static_cast<double>(nnz);
-        }
-    }
     py::dict out;
     out["beta"] = beta;
     out["df"] = df;
@@ -151,37 +154,14 @@ static py::dict py_spmb_scr(py::array_t<double, py::array::c_style | py::array::
 
     auto idx = idx_scr_arr.unchecked<2>();
     int nscr = static_cast<int>(idx.shape(0));
-    // Convert idx_scr to column-major: nscr rows, d columns
     std::vector<int> idx_scr_cm(static_cast<size_t>(nscr) * d);
     for (int m = 0; m < d; m++)
         for (int j = 0; j < nscr; j++)
             idx_scr_cm[static_cast<size_t>(m) * nscr + j] = idx(j, m);
 
     auto res = huge::mb_scr(S.data(), d, lam_vec.data(), nlambda, idx_scr_cm.data(), nscr);
+    auto [beta, df] = columns_to_dense(res.columns, d, nlambda);
 
-    // Same dense output conversion as spmb_graph
-    auto beta = py::array_t<double>({nlambda, d, d});
-    auto df = py::array_t<double>({d, nlambda});
-    std::fill_n(static_cast<double*>(beta.request().ptr), static_cast<size_t>(nlambda) * d * d, 0.0);
-    std::fill_n(static_cast<double*>(df.request().ptr), static_cast<size_t>(d) * nlambda, 0.0);
-    auto B = beta.mutable_unchecked<3>();
-    auto DF = df.mutable_unchecked<2>();
-
-    for (int m = 0; m < d; m++) {
-        const auto& col = res.columns[m];
-        for (size_t j = 0; j < col.vals.size(); j++) {
-            int encoded = col.indices[j];
-            int lam_idx = encoded / d;
-            int var_idx = encoded % d;
-            B(lam_idx, m, var_idx) = col.vals[j];
-        }
-        for (int i = 0; i < nlambda; i++) {
-            int nnz = 0;
-            for (int j = 0; j < d; j++)
-                if (std::fabs(B(i, m, j)) > 0.0) nnz++;
-            DF(m, i) = static_cast<double>(nnz);
-        }
-    }
     py::dict out;
     out["beta"] = beta;
     out["df"] = df;
@@ -200,33 +180,10 @@ static py::dict py_spmb_graphsqrt(py::array_t<double, py::array::c_style | py::a
     for (int i = 0; i < nlambda; i++) lam_vec[i] = lam(i);
 
     auto res = huge::tiger(X.data(), n, d, lam_vec.data(), nlambda);
+    auto [beta, df] = columns_to_dense(res.columns, d, nlambda);
 
-    // Beta output
-    auto beta = py::array_t<double>({nlambda, d, d});
-    auto df = py::array_t<double>({d, nlambda});
     auto icov = py::array_t<double>({nlambda, d, d});
-    std::fill_n(static_cast<double*>(beta.request().ptr), static_cast<size_t>(nlambda) * d * d, 0.0);
-    std::fill_n(static_cast<double*>(df.request().ptr), static_cast<size_t>(d) * nlambda, 0.0);
-    auto B = beta.mutable_unchecked<3>();
-    auto DF = df.mutable_unchecked<2>();
     auto I = icov.mutable_unchecked<3>();
-
-    for (int m = 0; m < d; m++) {
-        const auto& col = res.columns[m];
-        for (size_t j = 0; j < col.vals.size(); j++) {
-            int encoded = col.indices[j];
-            int lam_idx = encoded / d;
-            int var_idx = encoded % d;
-            B(lam_idx, m, var_idx) = col.vals[j];
-        }
-        for (int i = 0; i < nlambda; i++) {
-            int nnz = 0;
-            for (int j = 0; j < d; j++)
-                if (std::fabs(B(i, m, j)) > 0.0) nnz++;
-            DF(m, i) = static_cast<double>(nnz);
-        }
-    }
-
     for (int k = 0; k < nlambda; k++)
         for (int i = 0; i < d; i++)
             for (int j = 0; j < d; j++)
