@@ -7,7 +7,7 @@
 #' @importFrom Matrix Matrix
 #' @importFrom utils flush.console
 #' @importFrom MASS mvrnorm
-#' @importFrom igraph graph.adjacency layout.fruchterman.reingold
+#' @importFrom igraph graph_from_adjacency_matrix layout_with_fr
 #' @importFrom methods new
 NULL
 

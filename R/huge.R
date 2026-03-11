@@ -241,16 +241,16 @@ plot.huge = function(x, align = FALSE, ...){
 	lines(x$lambda[z.final],x$sparsity[z.final],type = "p")
 
 	if(align){
-		layout.grid = layout.fruchterman.reingold(graph.adjacency(as.matrix(x$path[[z.final[length(z.final)]]]), mode="undirected", diag=FALSE))
+		layout.grid = layout_with_fr(graph_from_adjacency_matrix(as.matrix(x$path[[z.final[length(z.final)]]]), mode="undirected", diag=FALSE))
 		for(i in z.final){
-			g = graph.adjacency(as.matrix(x$path[[i]]), mode="undirected", diag=FALSE)
+			g = graph_from_adjacency_matrix(as.matrix(x$path[[i]]), mode="undirected", diag=FALSE)
 			plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA, main = paste("lambda = ",as.character(round(x$lambda[i],3)),sep = ""))
 		}
 	}
 	if(!align){
 		for(i in z.final){
-			g = graph.adjacency(as.matrix(x$path[[i]]), mode="undirected", diag=FALSE)
-			layout.grid = layout.fruchterman.reingold(g)
+			g = graph_from_adjacency_matrix(as.matrix(x$path[[i]]), mode="undirected", diag=FALSE)
+			layout.grid = layout_with_fr(g)
 			plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA, main = paste("lambda = ",as.character(round(x$lambda[i],3)),sep = ""))
 		}
 	}

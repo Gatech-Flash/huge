@@ -159,8 +159,8 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
   fullfig[1] = image(theta, col = gray.colors(256),  main = "Adjacency Matrix")
 
   fullfig[2] = image(sigma, col = gray.colors(256), main = "Covariance Matrix")
-  g = graph.adjacency(theta, mode="undirected", diag=FALSE)
-  layout.grid = layout.fruchterman.reingold(g)
+  g = graph_from_adjacency_matrix(theta, mode="undirected", diag=FALSE)
+  layout.grid = layout_with_fr(g)
 
   fullfig[3] = plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA,main = "Graph Pattern")
 
@@ -201,8 +201,8 @@ plot.sim = function(x, ...){
      par = par(mfrow = c(2, 2), pty = "s", omi=c(0.3,0.3,0.3,0.3), mai = c(0.3,0.3,0.3,0.3))
      image(as.matrix(x$theta), col = gray.colors(256),  main = "Adjacency Matrix")
   image(x$sigma, col = gray.colors(256), main = "Covariance Matrix")
-  g = graph.adjacency(x$theta, mode="undirected", diag=FALSE)
-  layout.grid = layout.fruchterman.reingold(g)
+  g = graph_from_adjacency_matrix(x$theta, mode="undirected", diag=FALSE)
+  layout.grid = layout_with_fr(g)
 
   plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA,main = "Graph Pattern")
   image(x$sigmahat, col = gray.colors(256), main = "Empirical Covariance Matrix")

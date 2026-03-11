@@ -289,8 +289,8 @@ plot.select = function(x, ...){
   {
     par(mfrow=c(1,2), pty = "s", omi=c(0.3,0.3,0.3,0.3), mai = c(0.3,0.3,0.3,0.3))
 
-      g = graph.adjacency(as.matrix(x$refit), mode="undirected", diag=FALSE)
-    layout.grid = layout.fruchterman.reingold(g)
+      g = graph_from_adjacency_matrix(as.matrix(x$refit), mode="undirected", diag=FALSE)
+    layout.grid = layout_with_fr(g)
 
     plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA)
       plot(x$lambda, x$sparsity, log = "x", xlab = "Regularization Parameter", ylab = "Sparsity Level", type = "l",xlim = rev(range(x$lambda)), main = "Solution path sparsity levels")

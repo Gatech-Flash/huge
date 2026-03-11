@@ -27,3 +27,6 @@ README.md
 ^revdep$
 ^backups$
 ^pyhuge_summary_plot\.png$
+^huge_.*\.tar\.gz$
+^huge-master\.Rcheck$
+^\.\.Rcheck$
