@@ -83,9 +83,9 @@ huge.select = function(est, criterion = NULL, ebic.gamma = 0.5, stars.thresh = 0
   {
     if(est$method == "mb"&&is.null(criterion))
       criterion = "ric"
-    if(est$method == "ct"&&is.null(criterion))
+    else if(est$method == "ct"&&is.null(criterion))
       criterion = "stars"
-    if(est$method == "glasso"&&is.null(criterion))
+    else if(est$method == "glasso"&&is.null(criterion))
       criterion = "ebic"
 
     n = nrow(est$data)

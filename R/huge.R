@@ -73,28 +73,6 @@
 #' plot(out1)         #Not aligned
 #' plot(out1, align = TRUE) #Aligned
 #' huge.plot(out1$path[[3]])
-#'
-#' #graph path estimation using the sample covariance matrix as the input.
-#' #out1 = huge(cor(L$data), method = "glasso")
-#' #out1
-#' #plot(out1)         #Not aligned
-#' #plot(out1, align = TRUE) #Aligned
-#' #huge.plot(out1$path[[3]])
-#'
-#' #graph path estimation using ct
-#' #out2 = huge(L$data,method = "ct")
-#' #out2
-#' #plot(out2)
-#'
-#' #graph path estimation using glasso
-#' #out3 = huge(L$data, method = "glasso")
-#' #out3
-#' #plot(out3)
-#'
-#' #graph path estimation using tiger
-#' #out4 = huge(L$data, method = "tiger")
-#' #out4
-#' #plot(out4)
 #' @export
 huge = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL, method = "mb", scr = NULL, scr.num = NULL, cov.output = FALSE, sym = "or", verbose = TRUE)
 {
@@ -110,9 +88,7 @@ huge = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL, metho
 		est$sparsity = fit$sparsity
 		est$cov.input = fit$cov.input
 
-	}
-
-	if(method == "mb")
+	} else if(method == "mb")
 	{
 		fit = huge.mb(x, lambda = lambda, nlambda = nlambda, lambda.min.ratio = lambda.min.ratio, scr = scr, scr.num = scr.num, sym = sym, verbose = verbose)
 		est$path = fit$path
@@ -125,10 +101,7 @@ huge = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL, metho
 		est$scr = fit$scr
 		est$cov.input = fit$cov.input
 
-	}
-
-
-	if(method == "glasso")
+	} else if(method == "glasso")
 	{
 		fit = huge.glasso(x, nlambda = nlambda, lambda.min.ratio = lambda.min.ratio, lambda = lambda, scr = scr, cov.output = cov.output, verbose = verbose)
 		est$path = fit$path
@@ -143,9 +116,7 @@ huge = function(x, lambda = NULL, nlambda = NULL, lambda.min.ratio = NULL, metho
 		est$cov.output = fit$cov.output
 		est$scr = fit$scr
 
-	}
-
-	if(method == "tiger")
+	} else if(method == "tiger")
 	{
 	  fit = huge.tiger(x, lambda = lambda, nlambda = nlambda, lambda.min.ratio = lambda.min.ratio, sym = sym, verbose = verbose)
 	  est$path = fit$path
@@ -177,11 +148,11 @@ print.huge = function(x, ...)
 {
 	if(x$method == "ct")
 		cat("Model: graph estimation via correlation thresholding (ct)\n")
-	if(x$method == "glasso")
+	else if(x$method == "glasso")
 		cat("Model: graphical lasso (glasso)\n")
-	if(x$method == "mb")
+	else if(x$method == "mb")
 		cat("Model: Meinshausen & Buhlmann graph estimation (mb)\n")
-  if(x$method == "tiger")
+	else if(x$method == "tiger")
     cat("Model: tuning-insensitive approach\n")
 
 	if((x$method == "glasso")&&(x$scr)) cat("lossy screening: on\n")

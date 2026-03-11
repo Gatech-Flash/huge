@@ -15,20 +15,10 @@
 #' @export
 huge.ct = function(x, nlambda = NULL, lambda.min.ratio = NULL, lambda = NULL, verbose = TRUE)
 {
-  n = nrow(x);
-  d = ncol(x);
+  inp = .huge_preprocess(x, verbose)
+  x = inp$x; S = inp$S; n = inp$n; d = inp$d
   fit = list()
-  fit$cov.input = isSymmetric(x);
-  if(fit$cov.input)
-  {
-    if(verbose) cat("The input is identified as the covariance matrix.\n")
-    S = cov2cor(x);
-  }
-  if(!fit$cov.input)
-  {
-    x = scale(x)
-    S = cor(x)
-  }
+  fit$cov.input = inp$cov.input
 
   diag(S) = 0
   S = abs(S)

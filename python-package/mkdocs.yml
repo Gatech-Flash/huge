@@ -8,9 +8,8 @@ theme:
   name: material
 nav:
   - Home: index.md
-  - Start Here: getting-started.md
-  - Installation: installation.md
   - Quick Start: quickstart.md
+  - Installation: installation.md
   - Beginner Workflow: beginner-workflow.md
   - FAQ: faq.md
   - Troubleshooting: troubleshooting.md

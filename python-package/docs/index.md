@@ -5,11 +5,10 @@ estimation and inference workflows inspired by `huge`.
 
 If you are new, follow this order:
 
-1. [Start Here](getting-started.md)
+1. [Quick Start](quickstart.md)
 2. [Installation](installation.md)
-3. [Quick Start](quickstart.md)
-4. [Beginner Workflow](beginner-workflow.md)
-5. [Troubleshooting](troubleshooting.md)
+3. [Beginner Workflow](beginner-workflow.md)
+4. [Troubleshooting](troubleshooting.md)
 
 ## Package capabilities
 
@@ -31,6 +30,6 @@ If you are new, follow this order:
 
 ## Documentation map
 
-- Concept pages: [Start Here](getting-started.md), [FAQ](faq.md)
+- Concept pages: [Quick Start](quickstart.md), [FAQ](faq.md)
 - Practical pages: [Quick Start](quickstart.md), [Tutorials](tutorials.md), [Troubleshooting](troubleshooting.md)
 - Reference pages: [API Reference](api.md), [Function Manual](man/index.md), [Design](design.md), [Performance](performance.md)

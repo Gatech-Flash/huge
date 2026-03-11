@@ -73,9 +73,11 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
     }
   }
 
+  .transform_prob = function(p) sqrt(p/2)*(p<0.5)+(1-sqrt(0.5-0.5*p))*(p>=0.5)
+
   if(graph == "random"){
     if(is.null(prob))  prob = min(1, 3/d)
-    prob = sqrt(prob/2)*(prob<0.5)+(1-sqrt(0.5-0.5*prob))*(prob>=0.5)
+    prob = .transform_prob(prob)
   }
 
   if(graph == "cluster"){
@@ -83,7 +85,7 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
       if(d/g > 30)  prob = 0.3
       if(d/g <= 30)  prob = min(1,6*g/d)
     }
-    prob = sqrt(prob/2)*(prob<0.5)+(1-sqrt(0.5-0.5*prob))*(prob>=0.5)
+    prob = .transform_prob(prob)
   }
 
 
@@ -96,19 +98,19 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
   g.ind = rep(c(1:g),g.list)
 
 
+  # defaults for precision matrix parameters
+  if(is.null(u)) u = 0.1
+  if(is.null(v)) v = 0.3
+
   # build the graph structure
   theta = matrix(0,d,d);
   if(graph == "band"){
-    if(is.null(u)) u = 0.1
-    if(is.null(v)) v = 0.3
     for(i in 1:g){
       diag(theta[1:(d-i),(1+i):d]) = 1
       diag(theta[(1+i):d,1:(d-1)]) = 1
     }
   }
   if(graph == "cluster"){
-    if(is.null(u)) u = 0.1
-    if(is.null(v)) v = 0.3
     for(i in 1:g){
        tmp = which(g.ind==i)
        tmp2 = matrix(runif(length(tmp)^2,0,0.5),length(tmp),length(tmp))
@@ -117,8 +119,6 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
     }
   }
   if(graph == "hub"){
-    if(is.null(u)) u = 0.1
-    if(is.null(v)) v = 0.3
     for(i in 1:g){
        tmp = which(g.ind==i)
        theta[tmp[1],tmp] = 1
@@ -126,18 +126,12 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
     }
   }
   if(graph == "random"){
-    if(is.null(u)) u = 0.1
-    if(is.null(v)) v = 0.3
-
     tmp = matrix(runif(d^2,0,0.5),d,d)
     tmp = tmp + t(tmp)
     theta[tmp < prob] = 1
-    #theta[tmp >= tprob] = 0
   }
 
   if(graph == "scale-free"){
-  if(is.null(u)) u = 0.1
-  if(is.null(v)) v = 0.3
   out = .Call("_huge_SFGen", 2, d, PACKAGE= "huge")
   theta = matrix(as.numeric(out$G),d,d)
   }
@@ -155,16 +149,13 @@ huge.generator = function(n = 200, d = 50, graph = "random", v = NULL, u = NULL,
 
   # graph and covariance visulization
   if(vis == TRUE){
-  fullfig = par(mfrow = c(2, 2), pty = "s", omi=c(0.3,0.3,0.3,0.3), mai = c(0.3,0.3,0.3,0.3))
-  fullfig[1] = image(theta, col = gray.colors(256),  main = "Adjacency Matrix")
-
-  fullfig[2] = image(sigma, col = gray.colors(256), main = "Covariance Matrix")
+  par(mfrow = c(2, 2), pty = "s", omi=c(0.3,0.3,0.3,0.3), mai = c(0.3,0.3,0.3,0.3))
+  image(theta, col = gray.colors(256),  main = "Adjacency Matrix")
+  image(sigma, col = gray.colors(256), main = "Covariance Matrix")
   g = graph_from_adjacency_matrix(theta, mode="undirected", diag=FALSE)
   layout.grid = layout_with_fr(g)
-
-  fullfig[3] = plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA,main = "Graph Pattern")
-
-  fullfig[4] = image(sigmahat, col = gray.colors(256), main = "Empirical Matrix")
+  plot(g, layout=layout.grid, edge.color='gray50',vertex.color="red", vertex.size=3, vertex.label=NA,main = "Graph Pattern")
+  image(sigmahat, col = gray.colors(256), main = "Empirical Matrix")
   }
   if(verbose) cat("done.\n")
 

@@ -19,10 +19,9 @@ List SPMBgraphsqrt(NumericMatrix data, NumericVector lambda, int nlambda, int d)
 
     huge::TigerResult res = huge::tiger(data.begin(), n, d, lambda.begin(), nlambda);
 
-    // Convert per-column results to CSC-like format
+    // Reuse same CSC conversion pattern as SPMBgraph.cpp
     int total_nnz = 0;
     for (int m = 0; m < d; m++) total_nnz += res.columns[m].vals.size();
-
     NumericVector x(total_nnz);
     IntegerVector col_cnz(d + 1), row_idx(total_nnz);
     col_cnz[0] = 0;
@@ -37,7 +36,7 @@ List SPMBgraphsqrt(NumericMatrix data, NumericVector lambda, int nlambda, int d)
         col_cnz[m + 1] = cnz;
     }
 
-    // Convert icov matrices — write directly into R NumericMatrix (1 memcpy each)
+    // Convert icov matrices
     List icov_list(nlambda);
     const size_t mat_bytes = sizeof(double) * static_cast<size_t>(d) * d;
     for (int i = 0; i < nlambda; i++) {

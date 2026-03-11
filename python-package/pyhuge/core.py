@@ -177,7 +177,7 @@ def _ensure_ratio(name: str, value: float, low_open: float = 0.0, high_closed: f
     return fval
 
 
-def _ensure_lambda_sequence(lambda_: Sequence[float]) -> np.ndarray:
+def _ensure_lambda_sequence(lambda_: Sequence[float], *, allow_ties: bool = False) -> np.ndarray:
     lam = np.asarray(lambda_, dtype=float).reshape(-1)
     if lam.size == 0:
         raise PyHugeError("`lambda_` must contain at least one value.")
@@ -185,22 +185,16 @@ def _ensure_lambda_sequence(lambda_: Sequence[float]) -> np.ndarray:
         raise PyHugeError("`lambda_` contains non-finite values.")
     if np.any(lam <= 0):
         raise PyHugeError("`lambda_` must contain positive values.")
-    if lam.size > 1 and np.any(np.diff(lam) >= 0):
-        raise PyHugeError("`lambda_` must be strictly decreasing.")
+    if lam.size > 1:
+        if allow_ties and np.any(np.diff(lam) > 0):
+            raise PyHugeError("`lambda_` must be decreasing for method `ct` (ties are allowed).")
+        elif not allow_ties and np.any(np.diff(lam) >= 0):
+            raise PyHugeError("`lambda_` must be strictly decreasing.")
     return lam
 
 
 def _ensure_ct_lambda_sequence(lambda_: Sequence[float]) -> np.ndarray:
-    lam = np.asarray(lambda_, dtype=float).reshape(-1)
-    if lam.size == 0:
-        raise PyHugeError("`lambda_` must contain at least one value.")
-    if not np.isfinite(lam).all():
-        raise PyHugeError("`lambda_` contains non-finite values.")
-    if np.any(lam <= 0):
-        raise PyHugeError("`lambda_` must contain positive values.")
-    if lam.size > 1 and np.any(np.diff(lam) > 0):
-        raise PyHugeError("`lambda_` must be decreasing for method `ct` (ties are allowed).")
-    return lam
+    return _ensure_lambda_sequence(lambda_, allow_ties=True)
 
 
 def _is_covariance_input(x: np.ndarray) -> bool:
