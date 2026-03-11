@@ -1,6 +1,6 @@
-% \VignetteIndexEntry{vignette}
-% \VignetteKeywords{keywords here}
-% \VignettePackage{package name}
+% \VignetteIndexEntry{huge}
+% \VignetteKeywords{graphical models, high-dimensional}
+% \VignettePackage{huge}
 
 \documentclass[a4paper]{article}
 \usepackage{hyperref}

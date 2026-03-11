@@ -59,7 +59,6 @@ rsconnect/
 *.exe
 *.out
 *.app
-inst/doc
 /doc/
 /Meta/
 

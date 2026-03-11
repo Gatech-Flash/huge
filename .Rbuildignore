@@ -25,3 +25,6 @@ README.md
 ^doc$
 ^Meta$
 ^revdep$
+^backups$
+^include$
+^pyhuge_summary_plot\.png$
