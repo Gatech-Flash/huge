@@ -1,0 +1,64 @@
+name: R CMD check
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'R/**'
+      - 'src/**'
+      - 'man/**'
+      - 'tests/**'
+      - 'DESCRIPTION'
+      - 'NAMESPACE'
+      - 'configure*'
+      - '.github/workflows/r-cmd-check.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'R/**'
+      - 'src/**'
+      - 'man/**'
+      - 'tests/**'
+      - 'DESCRIPTION'
+      - 'NAMESPACE'
+      - 'configure*'
+      - '.github/workflows/r-cmd-check.yml'
+
+jobs:
+  check:
+    name: R CMD check (${{ matrix.os }}, R ${{ matrix.r }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        r: ['release']
+        include:
+          # Also test R-devel on Linux to catch upcoming breakage early
+          - os: ubuntu-latest
+            r: devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libopenblas-dev
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.r }}
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          args: 'c("--no-manual", "--no-build-vignettes", "--no-vignettes")'
+          error-on: '"error"'
+          upload-snapshots: true
