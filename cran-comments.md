@@ -2,12 +2,9 @@
 * macOS Tahoe 26.3, R 4.5.2 (aarch64-apple-darwin20)
 
 ## R CMD check results
-* `R CMD build --no-build-vignettes` on the source directory: OK
-* `R CMD check --as-cran huge_1.5.tar.gz`: unable to run locally due to
-  missing gfortran at `/opt/gfortran/lib/` (macOS-specific). The `$(FLIBS)`
-  flag in `Makevars.in` is required by CRAN policy when using `$(BLAS_LIBS)`,
-  and CRAN build servers have gfortran properly configured.
-* All 306 testthat tests pass on locally installed package.
+* `R CMD check --as-cran huge_1.5.tar.gz`: Status OK
+  (1 local-only WARNING for missing `checkbashisms`, 1 local-only NOTE
+  for `unable to verify current time` — neither appears on CRAN servers)
 
 ## Resubmission
 This is an update from version 1.4 to 1.5. Changes include:
@@ -16,6 +13,9 @@ This is an update from version 1.4 to 1.5. Changes include:
 * Removed RcppEigen dependency
 * Added testthat test suite
 * Fixed documentation and minor bugs
+* Fixed vignette PDF rebuild (renamed included PDF to avoid filename
+  collision with pdflatex output)
+* Compacted vignette PDF to pass CRAN size check
 
 The maintainer has been updated to:
 Tuo Zhao <tourzhao@gatech.edu>
