@@ -421,14 +421,12 @@ def _build_screen_idx(corr: np.ndarray, scr_num: int) -> np.ndarray:
 
 
 def _run_mb(
-    x_data: np.ndarray,
     corr: np.ndarray,
     lambda_path: np.ndarray,
     sym: str,
     scr: bool,
     scr_num: Optional[int],
 ) -> tuple[list[sparse.csc_matrix], np.ndarray]:
-    del x_data
     _require_native_core("mb")
     try:
         if scr:
@@ -530,12 +528,10 @@ def huge(
 ) -> HugeResult:
     """Native graph path estimation.
 
-    ``backend`` is kept for explicitness and future extension; only ``native``
-    is supported in 0.3.x.
+    ``verbose`` and ``backend`` are accepted for R-API compatibility.
+    Only the ``native`` backend is currently supported; ``verbose`` output
+    is not yet implemented.
     """
-
-    del verbose
-
     _ensure_backend_native(backend)
 
     if method not in _ALLOWED_METHODS:
@@ -652,7 +648,6 @@ def huge(
 
     if method == "mb":
         path, df = _run_mb(
-            x_data=np.asarray(x, dtype=float),
             corr=np.asarray(corr, dtype=float),
             lambda_path=lambda_path,
             sym=sym,
@@ -788,9 +783,10 @@ def huge_select(
     verbose: bool = True,
     backend: str = "native",
 ) -> HugeSelectResult:
-    """Native model selection for ``HugeResult``."""
+    """Native model selection for ``HugeResult``.
 
-    del verbose
+    ``verbose`` is accepted for R-API compatibility but not yet implemented.
+    """
     _ensure_backend_native(backend)
 
     if not isinstance(est, HugeResult):
@@ -939,10 +935,10 @@ def huge_npn(
     npn_func: str = "shrinkage",
     verbose: bool = True,
 ) -> np.ndarray:
-    """Native nonparanormal transformation."""
+    """Native nonparanormal transformation.
 
-    del verbose
-
+    ``verbose`` is accepted for R-API compatibility but not yet implemented.
+    """
     if npn_func not in _ALLOWED_NPN_FUNCS:
         raise PyHugeError(f"`npn_func` must be one of {sorted(_ALLOWED_NPN_FUNCS)}.")
 
@@ -1062,10 +1058,11 @@ def huge_generator(
     verbose: bool = True,
     random_state: Optional[int] = None,
 ) -> HugeGeneratorResult:
-    """Native data generator."""
+    """Native data generator.
 
-    del vis, verbose
-
+    ``vis`` and ``verbose`` are accepted for R-API compatibility but not
+    yet implemented.
+    """
     n = _ensure_positive_int("n", n)
     d = _ensure_positive_int("d", d)
     if graph not in _ALLOWED_GRAPH_TYPES:
@@ -1145,10 +1142,10 @@ def huge_roc(
     verbose: bool = True,
     plot: bool = False,
 ) -> HugeRocResult:
-    """Native ROC metrics for graph path."""
+    """Native ROC metrics for graph path.
 
-    del verbose
-
+    ``verbose`` is accepted for R-API compatibility but not yet implemented.
+    """
     if len(path) == 0:
         raise PyHugeError("`path` must contain at least one adjacency matrix.")
 
@@ -1205,7 +1202,12 @@ def huge_inference(
     type_: str = "Gaussian",
     method: str = "score",
 ) -> HugeInferenceResult:
-    """Native edge-wise inference via partial-correlation z test approximation."""
+    """Native edge-wise inference via partial-correlation z test approximation.
+
+    Currently only the score-based z-test is implemented.  The ``method``
+    parameter is accepted for API compatibility but only ``"score"`` behaviour
+    is performed regardless of the value passed.
+    """
 
     if type_ not in _ALLOWED_INFERENCE_TYPES:
         raise PyHugeError(f"`type_` must be one of {sorted(_ALLOWED_INFERENCE_TYPES)}.")

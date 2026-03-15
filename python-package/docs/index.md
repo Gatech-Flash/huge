@@ -1,6 +1,6 @@
-# pyhuge 0.3 Documentation
+# pyhuge Documentation
 
-`pyhuge` 0.3 is a native Python package for high-dimensional undirected graph
+`pyhuge` is a native Python package for high-dimensional undirected graph
 estimation and inference workflows inspired by `huge`.
 
 If you are new, follow this order:

@@ -5,7 +5,7 @@
 From `python-package`:
 
 ```bash
-python scripts/bump_version.py 0.3.1
+python scripts/bump_version.py 0.8.x
 ```
 
 This updates:

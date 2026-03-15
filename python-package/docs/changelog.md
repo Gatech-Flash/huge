@@ -1,6 +1,6 @@
 # Changelog
 
-Version history for pyhuge 0.3 is maintained in:
+Version history for pyhuge is maintained in:
 
 - [`python-package/CHANGELOG.md`](https://github.com/Gatech-Flash/huge/blob/master/python-package/CHANGELOG.md)
 

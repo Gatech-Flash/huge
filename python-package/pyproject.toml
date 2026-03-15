@@ -25,7 +25,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-runtime = []
+# runtime lists the core deps explicitly so `pip install "pyhuge[runtime]"` is meaningful
+runtime = [
+  "numpy>=1.23",
+  "scipy>=1.9",
+]
 viz = [
   "matplotlib>=3.8",
   "networkx>=3.2",
