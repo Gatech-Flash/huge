@@ -7,5 +7,5 @@
 \usepackage{pdfpages}
 \begin{document}
 \SweaveOpts{concordance=TRUE}
-\includepdf[fitpaper=true,pages=-]{huge.pdf}
+\includepdf[fitpaper=true,pages=-]{huge-content.pdf}
 \end{document}
