@@ -2,8 +2,10 @@
 // No Rcpp, no pybind11, no Eigen. Uses BLAS for hot-path linear algebra.
 #include "huge/huge_core.h"
 #include "huge/blas_config.h"
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 // BLAS constants reused throughout
 static const char   BLAS_N   = 'N';
@@ -295,6 +297,30 @@ static constexpr double GLASSO_INVERSE_RESIDUAL_TOL = 1e-2;
 static constexpr double GLASSO_REFINEMENT_RESIDUAL_TRIGGER =
     0.5 * GLASSO_INVERSE_RESIDUAL_TOL;
 
+// The leading sentence is the historical error text. The parenthetical
+// fields are what a caller needs in order to tell which penalty failed
+// and by how much; a throw here aborts every lambda in the same call.
+static std::string inconsistent_precision_message(
+    double lambda_value,
+    int component_size,
+    double raw_residual,
+    double projected_residual) {
+    char buffer[640];
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "glasso produced inconsistent precision and covariance estimates "
+        "(lambda = %.6g, component size = %d, "
+        "||covariance * precision - I||_inf before symmetrization = %.3g, "
+        "after symmetrization = %.3g, tolerance = %.3g).",
+        lambda_value,
+        component_size,
+        raw_residual,
+        projected_residual,
+        GLASSO_INVERSE_RESIDUAL_TOL);
+    return std::string(buffer);
+}
+
 // trace(A*B) = sum_k dot(A[:,k], B[k,:]).  B is symmetric here (sub_S), so
 // B[k,:] == B[:,k] and both dot operands are contiguous columns — bitwise
 // the same result as the strided form, without the stride-d walk.
@@ -561,13 +587,11 @@ static GlassoResult glasso_impl(const double* S_data, int d,
                 throw std::runtime_error(
                     "glasso produced a precision estimate that is not positive definite.");
             if (!std::isfinite(raw_inverse_residual) ||
-                    raw_inverse_residual > GLASSO_INVERSE_RESIDUAL_TOL)
-                throw std::runtime_error(
-                    "glasso produced inconsistent precision and covariance estimates.");
-            if (!std::isfinite(projected_residual) ||
+                    raw_inverse_residual > GLASSO_INVERSE_RESIDUAL_TOL ||
+                    !std::isfinite(projected_residual) ||
                     projected_residual > GLASSO_INVERSE_RESIDUAL_TOL)
-                throw std::runtime_error(
-                    "glasso produced inconsistent precision and covariance estimates.");
+                throw std::runtime_error(inconsistent_precision_message(
+                    lambda_i, q, raw_inverse_residual, projected_residual));
 
             for (int ii = 0; ii < q; ii++) {
                 for (int jj = 0; jj < q; jj++) {
