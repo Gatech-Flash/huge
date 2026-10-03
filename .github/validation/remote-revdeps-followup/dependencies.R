@@ -40,13 +40,33 @@ if (phase == "core") {
 } else if (phase == "plan") {
     refs <- readLines(args[4], warn = FALSE)
     stopifnot(!"huge" %in% refs)
-    plan <- pak::pkg_deps(resolver_roots(refs, shared, baseline), upgrade = FALSE, dependencies = NA)
-    saveRDS(plan, args[5])
-    fields <- intersect(c("package", "version", "ref", "type", "status", "priority", "sha256", "md5sum", "mirror"), names(plan))
-    write.csv(plan[, fields, drop = FALSE], args[6], row.names = FALSE)
-    stopifnot(all(plan$status == "OK"))
+    roots <- resolver_roots(refs, shared, baseline)
+    libs <- c(shared, if (nzchar(baseline)) normalizePath(baseline, mustWork = TRUE))
+    fixed <- roots[startsWith(roots, "installed::")]
+    rows <- lapply(fixed, function(ref) {
+        path <- substring(ref, nchar("installed::") + 1L)
+        d <- read.dcf(file.path(path, "DESCRIPTION"))
+        data.frame(Package = d[1, "Package"], Version = d[1, "Version"],
+                   Ref = ref, stringsAsFactors = FALSE)
+    })
+    write.csv(do.call(rbind, rows), paste0(args[5], ".expected.csv"), row.names = FALSE)
+    writeLines(roots, paste0(args[5], ".roots.txt"))
+    writeLines(c(paste0("R=", getRversion()), paste0("pak=", packageVersion("pak")),
+                 paste0("configured_library=", libs), paste0("R_lib_path=", .libPaths()),
+                 paste0("implicit_Recommended_library=", .Library)),
+               paste0(args[5], ".visibility.txt"))
+    # pkg_deps() always solves against an empty temporary library. The public
+    # lockfile API accepts explicit libraries and keeps the complete solved plan.
+    pak::lockfile_create(fixed, lockfile = paste0(args[5], ".visibility.lock.json"),
+                         lib = libs, upgrade = FALSE, dependencies = NA)
+    pak::lockfile_create(roots, lockfile = args[5], lib = libs,
+                         upgrade = FALSE, dependencies = NA)
 } else if (phase == "install") {
-    plan <- readRDS(args[4])
+    plan <- read.csv(args[4], colClasses = "character", check.names = FALSE)
+    dep_table <- read.csv(paste0(args[4], ".deps.csv"), colClasses = "character", check.names = FALSE)
+    plan$deps <- lapply(plan$package, function(package) {
+        dep_table[dep_table$owner == package, c("ref", "type", "package", "op", "version"), drop = FALSE]
+    })
     keep <- !plan$package %in% c("huge", "R")
     if ("priority" %in% names(plan)) {
         keep <- keep & (is.na(plan$priority) | plan$priority != "base")
@@ -68,7 +88,7 @@ if (phase == "core") {
     while (length(pending)) {
         ready <- pending[vapply(pending, function(i) {
             deps <- plan$deps[[i]]
-            hard <- deps$package[deps$type %in% c("depends", "imports", "linkingto")]
+            hard <- deps$package[tolower(deps$type) %in% c("depends", "imports", "linkingto")]
             !any(hard %in% plan$package[pending])
         }, logical(1))]
         if (!length(ready)) stop("Recorded hard-dependency plan contains a cycle")

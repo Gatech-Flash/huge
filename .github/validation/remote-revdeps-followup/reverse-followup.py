@@ -397,16 +397,20 @@ def run(args):
                 accumulated -= {"huge", "R"}
                 refs = audit.evidence / (epoch + "-roots.txt")
                 refs.write_text("\n".join(archive_refs.get(name, name) for name in sorted(accumulated)) + "\n")
-                plan_rds = audit.evidence / (epoch + "-dependency-plan.rds")
+                plan_lock = audit.evidence / (epoch + "-dependency-plan.lock.json")
                 plan_csv = audit.evidence / (epoch + "-dependency-plan.csv")
                 audit.command(["Rscript", "--vanilla", helper, "plan", str(shared), str(libs["baseline"]),
-                               str(refs), str(plan_rds), str(plan_csv), str(audit.evidence / (epoch + "-pre-inventory.csv"))],
+                               str(refs), str(plan_lock), str(plan_csv), str(audit.evidence / (epoch + "-pre-inventory.csv"))],
                               "plan-" + epoch, timeout=600)
-                plan = list(csv.DictReader(plan_csv.open()))
+                plan = write_lockfile_plan(plan_lock, plan_csv)
                 closure = {row["package"] for row in plan if row["package"] not in ("huge", "R") and row.get("priority") != "base"}
                 size = {"epoch": epoch, "actual_unique_dependency_closure": len(closure), "cap": args.max_dependencies,
                         "direct_roots": sorted(accumulated), "recursive_types": ["Depends", "Imports", "LinkingTo"],
-                        "target_direct_Suggests_included": group_names}
+                        "target_direct_Suggests_included": group_names,
+                        "planning_api": "pak::lockfile_create with explicit shared/baseline libraries",
+                        "raw_lockfile": str(plan_lock.relative_to(audit.evidence)),
+                        "normalized_fields": ["package", "version", "ref", "type", "deps"],
+                        "status_scope": "successful public solve required; status/priority/md5sum/mirror not synthesized"}
                 write(audit.evidence / (epoch + "-dependency-size.json"), size)
                 if len(closure) > args.max_dependencies:
                     raise RuntimeError("Dependency closure exceeds explicit cap; nothing trimmed")
@@ -415,7 +419,7 @@ def run(args):
                     if versions and versions != {targets[target]["version"]}:
                         raise RuntimeError("pak target version differs from frozen CRAN index")
                 audit.command(["Rscript", "--vanilla", helper, "install", str(shared), str(libs["baseline"]),
-                               str(plan_rds), str(audit.evidence / (epoch + "-inventory.csv"))],
+                               str(plan_csv), str(audit.evidence / (epoch + "-inventory.csv"))],
                               "install-" + epoch, timeout=2400)
                 if (shared / "huge").exists():
                     raise RuntimeError("Shared library must not contain huge")
@@ -474,6 +478,46 @@ def run(args):
         write(audit.evidence / "results.json", result)
     print(json.dumps({k: result.get(k) for k in ("completed", "actual_reverse_count", "no_candidate_regressions", "all_pairs_clean", "setup_or_execution_failure")}))
     return 0 if result["completed"] and result["no_candidate_regressions"] else 1
+
+
+def write_lockfile_plan(lock_path: Path, csv_path: Path) -> list[dict]:
+    """Normalize only the installer's fields; retain the complete raw public lockfile."""
+    raw = json.loads(lock_path.read_text())
+    if raw.get("lockfile_version") != 1 or not isinstance(raw.get("packages"), list):
+        raise ValueError("Unsupported public pak lockfile schema")
+    plan = raw["packages"]
+    fields = ("package", "version", "ref", "type")
+    seen = set()
+    deps = []
+    for row in plan:
+        if not all(isinstance(row.get(k), str) and row[k] for k in fields):
+            raise ValueError("Lockfile lacks required package/ref/version/type fields")
+        if row["package"] in seen:
+            raise ValueError("Lockfile selected a package more than once")
+        seen.add(row["package"])
+        if not isinstance(row.get("deps"), list):
+            raise ValueError("Lockfile lacks complete dependency records")
+        for dep in row["deps"]:
+            if not all(isinstance(dep.get(k), str) for k in ("ref", "type", "package", "op", "version")):
+                raise ValueError("Lockfile has malformed dependency constraint fields")
+            deps.append({"owner": row["package"], **{k: dep[k] for k in ("ref", "type", "package", "op", "version")}})
+    expected = list(csv.DictReader(Path(str(lock_path) + ".expected.csv").open()))
+    visible = json.loads(Path(str(lock_path) + ".visibility.lock.json").read_text())["packages"]
+    for name, data in (("visibility", visible), ("full plan", plan)):
+        chosen = {row["package"]: row for row in data}
+        for row in expected:
+            found = chosen.get(row["Package"])
+            if found is None or found["version"] != row["Version"] or found["ref"] != row["Ref"]:
+                raise ValueError(f"Explicit installed package not preserved by {name}: {row['Package']}")
+    with csv_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows({k: row[k] for k in fields} for row in plan)
+    with Path(str(csv_path) + ".deps.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=("owner", "ref", "type", "package", "op", "version"))
+        writer.writeheader()
+        writer.writerows(deps)
+    return plan
 
 
 def selftest(args):
