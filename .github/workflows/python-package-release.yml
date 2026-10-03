@@ -515,7 +515,6 @@ jobs:
       MKL_NUM_THREADS: "1"
       VECLIB_MAXIMUM_THREADS: "1"
       BLIS_NUM_THREADS: "1"
-      REVDEP_OUTPUT: ${{ runner.temp }}/huge-paired-reverse-dependencies
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -534,13 +533,13 @@ jobs:
       - name: Check current direct reverse packages against both huge versions
         run: |
           python -I .github/validation/remote-revdeps/reverse-dependencies.py run \
-            --source "${GITHUB_WORKSPACE}" --output "${REVDEP_OUTPUT}" \
+            --source "${GITHUB_WORKSPACE}" --output "${RUNNER_TEMP}/huge-paired-reverse-dependencies" \
             --total-minutes 90 --max-dependencies 350
       - name: Preserve every baseline, candidate, failure and timeout
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: validation-r-paired-reverse-dependencies
-          path: ${{ env.REVDEP_OUTPUT }}/evidence/
+          path: ${{ runner.temp }}/huge-paired-reverse-dependencies/evidence/
           if-no-files-found: error
           retention-days: 14
