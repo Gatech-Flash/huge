@@ -5,9 +5,17 @@ on:
     tags:
       - "pyhuge-v*"
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Validation scope
+        type: choice
+        required: true
+        default: full
+        options: [full, windows]
 
 jobs:
   validate-version:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +44,12 @@ jobs:
           PY
 
   verify:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     needs: validate-version
     uses: ./.github/workflows/python-package-tests.yml
 
   sdist:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     needs: verify
     runs-on: ubuntu-latest
     steps:
@@ -110,6 +120,7 @@ jobs:
           path: python-package/dist/*.tar.gz
 
   wheels:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     needs: verify
     runs-on: ubuntu-latest
     steps:
@@ -179,6 +190,7 @@ jobs:
           path: python-package/wheelhouse/*.whl
 
   wheel-smoke:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     needs: wheels
     runs-on: ubuntu-latest
     steps:
@@ -234,7 +246,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     needs: [sdist, wheel-smoke]
-    if: ${{ false && startsWith(github.ref, 'refs/tags/pyhuge-v') }}
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.scope == 'full') && false && startsWith(github.ref, 'refs/tags/pyhuge-v') }}
     permissions:
       id-token: write
     environment:
@@ -258,6 +270,7 @@ jobs:
           skip-existing: true
 
   validation-r-core-mirrors:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Shared C++ core mirror check
     runs-on: ubuntu-latest
     steps:
@@ -268,6 +281,7 @@ jobs:
         run: tools/check_core_mirrors_probes.sh
 
   validation-r-core-sanitizers:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Native ASan/UBSan (OpenMP ${{ matrix.openmp }})
     runs-on: ubuntu-latest
     strategy:
@@ -287,6 +301,7 @@ jobs:
         run: sh tools/check_native_sanitizers.sh
 
   validation-r-core-cmake:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Standalone core install (${{ matrix.os }}, OpenMP ${{ matrix.openmp }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -320,6 +335,7 @@ jobs:
         run: tools/check_cmake_install.sh
 
   validation-r-check:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: R CMD check (${{ matrix.os }}, R ${{ matrix.r }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -362,6 +378,7 @@ jobs:
           snapshot-artifact-name: validation-r-${{ matrix.os }}-${{ matrix.r }}-snapshots
 
   validation-r-strict-source:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Clean source package with vignettes and PDF manual
     runs-on: ubuntu-latest
     env:
@@ -405,6 +422,7 @@ jobs:
           snapshot-artifact-name: validation-r-strict-as-cran-snapshots
 
   validation-wrapper-e2e:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -445,6 +463,7 @@ jobs:
           test "$passed_count" -eq 6
 
   validation-binding-sanitizers:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Independent Linux Python binding and core sanitizer
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -479,6 +498,7 @@ jobs:
           path: ${{ runner.temp }}/independent-linux-binding-sanitizers
 
   validation-linux-performance:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Actual Linux OpenBLAS and OpenMP workflow comparisons
     runs-on: ubuntu-latest
     needs: verify
@@ -504,6 +524,7 @@ jobs:
           path: ${{ runner.temp }}/huge-performance-audit/results
 
   validation-r-reverse-dependencies:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
     name: Paired CRAN direct reverse dependency checks
     runs-on: ubuntu-latest
     needs: verify
@@ -543,3 +564,69 @@ jobs:
           path: ${{ runner.temp }}/huge-paired-reverse-dependencies/evidence/
           if-no-files-found: error
           retention-days: 14
+
+  validation-windows-followup:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'windows' }}
+    name: Windows R check after LF checkout fix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        r: ['release']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libopenblas-dev
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.r }}
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - name: Verify checkout shell sources use LF
+        shell: Rscript {0}
+        run: |
+          scripts <- c("configure", "configure.ac", "cleanup",
+                       list.files("tools", pattern = "\\.sh$", full.names = TRUE))
+          stopifnot(length(scripts) > 3L, all(file.exists(scripts)))
+          for (path in scripts) {
+            bytes <- readBin(path, "raw", n = file.info(path)$size)
+            stopifnot(!any(bytes == as.raw(13L)))
+          }
+          message("Checked LF bytes in ", length(scripts), " shell source files")
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          build_args: 'c("--no-manual", "--no-build-vignettes")'
+          args: 'c("--no-manual", "--no-build-vignettes", "--no-vignettes")'
+          error-on: '"error"'
+          upload-snapshots: true
+          upload-results: true
+          artifact-name: validation-windows-followup-results
+          snapshot-artifact-name: validation-windows-followup-snapshots
+
+      - name: Verify source archive excludes checkout attributes and check has no warning
+        shell: Rscript {0}
+        run: |
+          archives <- list.files("check", pattern = "^huge_.*\\.tar\\.gz$",
+                                 recursive = TRUE, full.names = TRUE)
+          stopifnot(length(archives) == 1L)
+          members <- utils::untar(archives[[1L]], list = TRUE)
+          stopifnot(!any(grepl("(^|/)\\.gitattributes$", members)))
+          check_logs <- list.files("check", pattern = "^00check\\.log$",
+                                   recursive = TRUE, full.names = TRUE)
+          stopifnot(length(check_logs) == 1L)
+          status <- grep("^Status:", readLines(check_logs[[1L]], warn = FALSE), value = TRUE)
+          stopifnot(identical(status, "Status: OK"))
+          message("Source archive excludes .gitattributes; Windows R check Status: OK")

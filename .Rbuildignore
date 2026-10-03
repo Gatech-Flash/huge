@@ -2,6 +2,7 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^\.gitignore$
+^\.gitattributes$
 ^\.github$
 ^src/\.gitignore$
 ^vignettes/\.gitignore$
