@@ -269,7 +269,7 @@ def run_r_inference_reference(
             suppressMessages(library(huge))
             out <- huge.inference(x, T, adj, alpha=alpha, type=type, method=method)
             write.table(out$p, file.path(out_dir, 'p.csv'), sep=',',
-                        row.names=FALSE, col.names=FALSE)
+                        row.names=FALSE, col.names=FALSE, na='NaN')
             write.table(out$data, file.path(out_dir, 'data.csv'), sep=',',
                         row.names=FALSE, col.names=FALSE)
             write.table(out$error, file.path(out_dir, 'error.txt'),

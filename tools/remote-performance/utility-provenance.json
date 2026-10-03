@@ -1,0 +1,14 @@
+{
+  "source": "benchmark/github-comparison/harness/python-compare.py",
+  "source_sha256": "bd49f196e576fe5879bbbe21b38edeff1066f7b6fa1e9e1883d8540bc266d86a",
+  "copy_sha256": "f65a501ec03fe2605c3eac79c95dbc61c5d20a599caffc7baf1c054fbd39a6ee",
+  "changes": [
+    "Configurable OpenMP thread count, still BLAS thread1",
+    "Require real loaded LP64 OpenBLAS per worker",
+    "Explicit audit helper import under -I and helper source fingerprint",
+    "Exact off-diagonal inference decisions at frozen alpha, separate from numeric tolerance"
+  ],
+  "floating_comparison_tolerance_unchanged": true,
+  "timed_workflow_policy_unchanged": true,
+  "inference_decision_gate_added": true
+}

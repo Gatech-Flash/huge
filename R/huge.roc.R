@@ -10,9 +10,10 @@
 #'
 #' To avoid the horizontal oscillation, false positive rates is automatically sorted in the ascent order and true positive rates also follow the same order.
 #'
-#' @param path A graph path.
-#' @param theta The true graph structure, containing at least one edge and one absent off-diagonal edge.
+#' @param path A nonempty list of graph matrices of the same dimensions as \code{theta}. Dense matrices, numeric data frames, and sparse \code{Matrix} objects are accepted.
+#' @param theta The square true graph structure, containing at least one edge and one absent off-diagonal edge. All entries must be finite.
 #' @param verbose If \code{verbose = FALSE}, tracing information printing is disabled. The default value is \code{TRUE}.
+#' @details Nonzero entries indicate edges, after summing any duplicate sparse entries. All off-diagonal positions are counted, including both directions for asymmetric inputs. Diagonal entries are ignored after checking that all entries are finite. Sparse inputs are processed without conversion to dense matrices. Returned scores retain the input path order; sorting is used only for plotting and AUC integration.
 #' @note ROC/AUC is undefined when \code{theta} contains only edges or only non-edges, so those one-class truth matrices are rejected. For a lasso regression, the number of nonzero coefficients is at most \code{n-1}. If \code{d>>n}, even when regularization parameter is very small, the estimated graph may still be sparse. In this case, the AUC may not be a good choice to evaluate the performance.
 #' @return
 #' An object with S3 class "roc" is returned:
@@ -43,16 +44,16 @@
 huge.roc = function(path, theta, verbose = TRUE){
 
   ROC = list()
+  if(length(path) == 0)
+    stop("path must contain at least one adjacency matrix.")
 
-  theta = as.matrix(theta)
-  d = ncol(theta)
-  # Off-diagonal true/null edge masks, computed once; the per-lambda work is
-  # then two logical-AND sums instead of dense double products + diag resets.
-  offdiag = !diag(TRUE, d)
-  pos.mask = (theta != 0) & offdiag
-  neg.mask = (theta == 0) & offdiag
+  pos.mask = .huge_roc_support(theta, "theta")
+  d = ncol(pos.mask)
+  if(nrow(pos.mask) != d)
+    stop("theta must be square.")
+  truth.sparse = inherits(pos.mask, "sparseMatrix")
   pos.total = sum(pos.mask)
-  neg.total = sum(neg.mask)
+  neg.total = as.double(d) * (d - 1) - pos.total
   if(pos.total == 0 || neg.total == 0)
     stop(paste(
       "theta must contain at least one edge and at least one absent",
@@ -61,16 +62,33 @@ huge.roc = function(path, theta, verbose = TRUE){
 
   if(verbose) cat("Computing F1 scores, false positive rates and true positive rates....")
   ROC$tp = rep(0,length(path))
-     ROC$fp = rep(0,length(path))
-     ROC$F1 = rep(0,length(path))
-     for (r in 1:length(path)){
-       est = as.matrix(path[[r]]) != 0
-    tp.count = sum(est & pos.mask)
+  ROC$fp = rep(0,length(path))
+  ROC$F1 = rep(0,length(path))
+  truth.coordinates = NULL
+  for (r in seq_along(path)){
+    est = .huge_roc_support(path[[r]], paste0("path[[", r, "]]"))
+    if(!identical(dim(est), c(d, d)))
+      stop(paste0("path[[", r, "]] must have dimensions ", d, " by ", d, "."))
+    est.sparse = inherits(est, "sparseMatrix")
+    if(truth.sparse && est.sparse){
+      tp.count = sum(est * pos.mask)
+    } else if(est.sparse){
+      entries = Matrix::summary(est)
+      tp.count = sum(pos.mask[cbind(entries$i, entries$j)])
+    } else if(truth.sparse){
+      if(is.null(truth.coordinates)){
+        entries = Matrix::summary(pos.mask)
+        truth.coordinates = cbind(entries$i, entries$j)
+      }
+      tp.count = sum(est[truth.coordinates])
+    } else {
+      tp.count = sum(est & pos.mask)
+    }
     ROC$tp[r] <- tp.count/pos.total
-    fp.count = sum(est & neg.mask)
+    pred.count = sum(est)
+    fp.count = pred.count - tp.count
     ROC$fp[r] <- fp.count/neg.total
 
-    pred.count = tp.count + fp.count
     precision = if(pred.count > 0) tp.count / pred.count else 0
     recall = ROC$tp[r]
     ROC$F1[r] = if(precision + recall > 0) 2*precision*recall/(precision+recall) else 0
@@ -89,6 +107,33 @@ huge.roc = function(path, theta, verbose = TRUE){
 
   class(ROC) = "roc"
   return(ROC)
+}
+
+.huge_roc_support = function(value, name){
+  # Expanding symmetric/triangular storage and summing triplet duplicates must
+  # precede the nonzero test. The conversions retain sparse storage throughout.
+  if(inherits(value, c("sparseMatrix", "diagonalMatrix", "indMatrix"))){
+    value = methods::as(methods::as(value, "generalMatrix"), "CsparseMatrix")
+    if("x" %in% methods::slotNames(value) && any(!is.finite(value@x)))
+      stop(paste0(name, " contains non-finite values."))
+    support = Matrix::drop0(value != 0)
+    if(any(Matrix::diag(support))){
+      Matrix::diag(support) = FALSE
+      support = Matrix::drop0(support)
+    }
+    return(support)
+  }
+
+  value = tryCatch(as.matrix(value), error = function(e) NULL)
+  if(length(dim(value)) != 2 || !(is.numeric(value) || is.logical(value)))
+    stop(paste0(name, " must be a numeric 2D matrix."))
+  if(!all(is.finite(value)))
+    stop(paste0(name, " contains non-finite values."))
+  support = value != 0
+  # Inline the replacement: diag<- would copy this newly allocated matrix.
+  i = seq_len(min(dim(support)))
+  support[cbind(i, i)] = FALSE
+  support
 }
 
 #' Print function for S3 class "roc"

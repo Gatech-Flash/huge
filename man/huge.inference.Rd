@@ -36,7 +36,13 @@ Implements the inference for high dimensional graphical models, including Gaussi
 We consider the problems of testing the presence of a single edge and the hypothesis is that the edge is absent.
 }
 \details{
-For Nonparanormal graphical model we provide Score test method and Wald Test. However it is really slow for inferencing on Nonparanormal model, especially for large data. Gaussian inference supports one variable, while Nonparanormal inference requires at least two. Nonparanormal score-test diagonal p-values do not represent edges and may be undefined; every tested off-diagonal p-value must be finite.
+Nonparanormal inference provides score and Wald tests. It streams the rank-based
+variance calculations using \eqn{O(nd + d^2)} working memory; computation still
+requires \eqn{O(n^2 d^2 + nd^3)} arithmetic operations. Gaussian inference
+supports one variable, while Nonparanormal inference requires at least two.
+Nonparanormal score-test diagonal p-values do not represent edges and may be
+undefined; every tested off-diagonal p-value must be finite. Inputs that
+overflow an off-diagonal variance are rejected.
 }
 \examples{
 #generate data

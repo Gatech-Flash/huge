@@ -12,14 +12,16 @@ test_that("glasso returns valid structure", {
   expect_equal(length(fit$df), length(fit$lambda))
 })
 
-test_that("glasso lambda path is decreasing and sparsity is non-decreasing", {
+test_that("glasso lambda decreases and graph metadata is consistent", {
   set.seed(11)
   L <- huge.generator(n = 80, d = 30, graph = "hub", verbose = FALSE)
   fit <- huge(L$data, method = "glasso", verbose = FALSE)
 
   expect_true(all(diff(fit$lambda) < 0))
-  expect_true(all(diff(fit$sparsity) >= -1e-10))
-  expect_true(all(diff(fit$df) >= 0))
+  edges <- vapply(fit$path, function(path) Matrix::nnzero(path) / 2, numeric(1))
+  expect_equal(fit$df, edges)
+  d <- ncol(L$data)
+  expect_equal(fit$sparsity, 2 * edges / (d * (d - 1)), tolerance = 1e-12)
 })
 
 test_that("glasso loglik values are finite", {
@@ -328,7 +330,7 @@ test_that("glasso works across graph types", {
   for (g in c("hub", "band", "cluster", "random")) {
     L <- huge.generator(n = 60, d = 20, graph = g, verbose = FALSE)
     fit <- huge(L$data, method = "glasso", verbose = FALSE)
-    expect_true(all(diff(fit$sparsity) >= -1e-10),
-                info = paste("non-monotone sparsity for graph =", g))
+    edges <- vapply(fit$path, function(path) Matrix::nnzero(path) / 2, numeric(1))
+    expect_equal(fit$df, edges, info = paste("graph =", g))
   }
 })

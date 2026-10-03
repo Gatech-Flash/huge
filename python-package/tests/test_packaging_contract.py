@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
+from packaging.requirements import Requirement
+from packaging.version import Version
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = PACKAGE_ROOT.parent
@@ -87,7 +90,7 @@ def test_release_documentation_uses_concrete_consistent_versions():
 
 
 def test_r_python_and_standalone_release_versions_are_aligned():
-    expected = "2.0.1"
+    expected = "2.0.2"
     escaped = re.escape(expected)
     files_and_patterns = (
         (PACKAGE_ROOT / "pyproject.toml", rf'(?m)^version = "{escaped}"$'),
@@ -141,7 +144,18 @@ def test_release_workflow_is_gated_by_full_tests_and_wheel_smoke():
     smoke_job = _release_job(workflow, "wheel-smoke")
     publish_job = _release_job(workflow, "publish")
 
-    assert "Run full Python suite against the current R package" in verify_job
+    assert "needs: validate-version" in verify_job
+    assert "uses: ./.github/workflows/python-package-tests.yml" in verify_job
+    tests_workflow = (
+        REPOSITORY_ROOT / ".github/workflows/python-package-tests.yml"
+    ).read_text(encoding="utf-8")
+    assert "\n  workflow_call:\n" in tests_workflow
+    assert "Run full Python suite against the current R package" in _release_job(
+        tests_workflow, "parity-r"
+    )
+    assert "R CMD INSTALL" in _release_job(tests_workflow, "parity-r")
+    assert "R_LIBS_USER:" in _release_job(tests_workflow, "parity-r")
+    assert "Run full non-R suite" in _release_job(tests_workflow, "minimum-dependencies")
     assert "needs: verify" in sdist_job
     assert "Install and smoke-test source distribution" in sdist_job
     assert "needs: verify" in wheels_job
@@ -248,14 +262,56 @@ def test_publish_merges_only_validated_wheels_and_sdist():
     assert "packages-dir: dist" in publish_job
 
 
-def test_ci_exercises_declared_minimum_numpy_version():
+def test_ci_exercises_declared_minimum_numpy_and_pybind11_versions():
     workflow = (
         REPOSITORY_ROOT / ".github/workflows/python-package-tests.yml"
     ).read_text(encoding="utf-8")
 
     assert "\n  minimum-dependencies:\n" in workflow
-    assert "numpy==1.23.5" in workflow
-    assert "scipy==1.9.3" in workflow
+    job = _release_job(workflow, "minimum-dependencies")
+    for name, versions in (("numpy", ("1.23.0", "1.23.5", "2.0.2", "2.1.0", "2.3.3")),
+                           ("scipy", ("1.9.0", "1.9.3", "1.13.1", "1.14.1", "1.16.2")),
+                           ("pybind11", ("2.12.0", "2.13.0", "3.0.0"))):
+        for version in versions:
+            assert f'{name}: "{version}"' in job
+        assert f'"{name}==${{{{ matrix.{name} }}}}"' in job
+    assert "--no-build-isolation --no-deps" in job
+    pyproject = (PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    build_requires = re.search(r"(?m)^requires = (\[[\s\S]*?\])", pyproject)
+    assert build_requires is not None
+    requirements = [Requirement(item) for item in ast.literal_eval(build_requires.group(1))]
+    pybind_floors = [item for item in requirements if item.name == "pybind11"]
+    rows = re.findall(r'- python-version: "([0-9.]+)"\n\s+pybind11: "([0-9.]+)"', job)
+    assert len(rows) == 5
+    for python_version, exact_version in rows:
+        active = [item for item in pybind_floors
+                  if item.marker is None or item.marker.evaluate({"python_version": python_version})]
+        assert len(active) == 1, (python_version, active)
+        floor = next(iter(active[0].specifier))
+        assert floor.operator == ">="
+        assert Version(exact_version) == Version(floor.version)
+    assert 'python-version: ${{ matrix.python-version }}' in job
+    assert 'python-version: "3.12"' in job
+    assert 'module.__version__ == expected' in job
+
+
+def test_release_ci_instruments_the_python_binding_and_core():
+    workflow = (
+        REPOSITORY_ROOT / ".github/workflows/python-package-tests.yml"
+    ).read_text(encoding="utf-8")
+    job = _release_job(workflow, "binding-sanitizers")
+    assert "sh tools/check_python_binding_sanitizers.sh" in job
+    assert "continue-on-error" not in job
+    assert "if: always()" in job
+    assert "actions/upload-artifact@" in job
+    script = (REPOSITORY_ROOT / "tools/check_python_binding_sanitizers.sh").read_text(
+        encoding="utf-8"
+    )
+    assert '"huge_core", "native_core_bindings"' in script
+    assert '"-fsanitize=address,undefined"' in script
+    assert '"__asan_report" in symbols and "__ubsan_handle" in symbols' in script
+    assert '"test_matrix_ownership.py"' in script
+    assert '"failures", "errors", "skipped"' in script
 
 
 def test_unit_ci_covers_every_published_cpython_and_sparse_bindings():
@@ -265,4 +321,30 @@ def test_unit_ci_covers_every_published_cpython_and_sparse_bindings():
 
     for version in ("3.9", "3.10", "3.11", "3.12", "3.13", "3.14"):
         assert f'"{version}"' in workflow
-    assert "tests/test_native_symbols.py" in workflow
+    # Directory discovery includes newly added numerical and native tests;
+    # an explicit list of selected files silently left regressions untested.
+    for name in ("unit", "minimum-dependencies"):
+        job = _release_job(workflow, name)
+        assert "python -m pytest -ra --ignore=tests/test_native_vs_r_parity.py" in job
+        assert "--ignore=tests/test_strict_r_parity.py" in job
+    assert '"src/**"' in workflow
+    assert "pytest -q -rA" in _release_job(workflow, "parity-r")
+
+
+def test_wrapper_ci_keeps_e2e_without_repeating_unit_suite():
+    workflow = (
+        REPOSITORY_ROOT / ".github/workflows/python-wrapper-tests.yml"
+    ).read_text(encoding="utf-8")
+    assert "\n  unit:\n" not in workflow
+    main_workflow = (
+        REPOSITORY_ROOT / ".github/workflows/python-package-tests.yml"
+    ).read_text(encoding="utf-8")
+    job = _release_job(main_workflow, "unit")
+    assert "python -m pytest -ra --ignore=tests/test_native_vs_r_parity.py" in job
+    assert "--ignore=tests/test_strict_r_parity.py" in job
+    assert "--ignore=tests/test_streaming_r_parity.py" in job
+
+    e2e_job = _release_job(workflow, "e2e-r-runtime")
+    assert 'out="$(pytest -q tests/test_e2e_optional.py -rA)"' in e2e_job
+    assert "awk '/^PASSED tests\\/test_e2e_optional.py::/{n++} END{print n+0}'" in e2e_job
+    assert 'test "$passed_count" -eq 6' in e2e_job

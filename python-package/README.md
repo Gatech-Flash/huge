@@ -134,8 +134,8 @@ mkdocs build --strict
 cd python-package
 pytest
 bash scripts/build_dist.sh
-python scripts/bump_version.py 2.0.1
-bash scripts/release.sh 2.0.1
+python scripts/bump_version.py 2.0.2
+bash scripts/release.sh 2.0.2
 ```
 
 ## Citation

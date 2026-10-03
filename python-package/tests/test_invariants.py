@@ -22,7 +22,7 @@ def _random_shape(seed: int) -> tuple[int, int, int]:
 
 
 @pytest.mark.parametrize("seed", range(6))
-def test_outputs_symmetric_sparsity_monotone(seed: int) -> None:
+def test_outputs_symmetric_with_valid_sparsity(seed: int) -> None:
     n, d, nlam = _random_shape(seed)
     x = np.random.default_rng(seed + 100).normal(size=(n, d))
     for m in METHODS:
@@ -39,7 +39,9 @@ def test_outputs_symmetric_sparsity_monotone(seed: int) -> None:
             assert np.abs(pm - pm.T).max() == 0.0
             assert np.abs(np.diag(pm)).max() == 0.0
         assert ((fit.sparsity >= 0) & (fit.sparsity <= 1)).all()
-        if nlam > 1:
+        # Only thresholding guarantees nested supports. Penalized regression
+        # can drop an edge as lambda decreases.
+        if m == "ct" and nlam > 1:
             assert (np.diff(fit.sparsity) >= -1e-12).all()
 
 

@@ -187,6 +187,50 @@ def test_mb_sparse_support_matches_compatible_dense_output() -> None:
         np.testing.assert_array_equal(actual_graph, dense_graph)
 
 
+@pytest.mark.parametrize("dimension", [12, 16, 17, 40, 257, 258])
+@pytest.mark.parametrize("screened", [False, True])
+def test_mb_recovers_known_signed_lasso_solution(dimension, screened) -> None:
+    # Construct a correlation problem whose first node has a known dense
+    # solution: s = G beta + lambda sign(beta) satisfies the lasso KKT system.
+    # Dimensions cover small, cached, and larger active sets; reversed screen
+    # indices also exercise a nontrivial coordinate order.
+    positions = np.arange(dimension - 1)
+    gram = 0.2 ** np.abs(positions[:, None] - positions[None, :])
+    expected = np.where(positions % 2, -1.0, 1.0) * (
+        0.005 + 0.01 * (positions % 7) / 6.0
+    )
+    penalty = 0.005
+    cross = (gram * expected).sum(axis=1) + penalty * np.sign(expected)
+    corr = np.eye(dimension)
+    corr[1:, 1:] = gram
+    corr[0, 1:] = corr[1:, 0] = cross
+    lambdas = np.asarray([0.25, penalty, penalty])
+
+    if screened:
+        indices = np.stack(
+            [
+                np.delete(np.arange(dimension), response)[::-1]
+                for response in range(dimension)
+            ],
+            axis=1,
+        ).astype(np.int32)
+        out = _native_core.spmb_scr(corr, lambdas, indices)
+    else:
+        out = _native_core.spmb_graph(corr, lambdas)
+
+    beta = np.asarray(out["beta"])
+    assert not out["hit_max_iter"]
+    np.testing.assert_array_equal(beta[0], np.zeros_like(beta[0]))
+    for path_index in (1, 2):
+        assert beta[path_index, 0, 0] == 0.0
+        np.testing.assert_array_equal(
+            np.sign(beta[path_index, 0, 1:]), np.sign(expected)
+        )
+        np.testing.assert_allclose(
+            beta[path_index, 0, 1:], expected, rtol=0.0, atol=1e-6
+        )
+
+
 def test_tiger_sparse_support_matches_compatible_dense_output() -> None:
     x = np.random.default_rng(57).normal(size=(80, 5))
     lambdas = np.asarray([0.5])

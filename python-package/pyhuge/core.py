@@ -11,7 +11,7 @@ from typing import Any, Optional, Sequence, Union
 from importlib import resources
 
 import numpy as np
-from scipy import sparse, stats
+from scipy import sparse, special, stats
 from scipy.spatial.distance import squareform
 
 
@@ -375,24 +375,29 @@ def _cov_to_corr(
     inv_sd = 1.0 / np.sqrt(diagonal)
     dimension = int(cov.shape[0])
     corr = np.eye(dimension, dtype=float)
-    for column in range(1, dimension):
-        for row in range(column):
-            inv_large = max(inv_sd[row], inv_sd[column])
-            inv_small = min(inv_sd[row], inv_sd[column])
-            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
-                value = (cov[row, column] * inv_large) * inv_small
-            if not np.isfinite(value):
-                raise PyHugeError(
-                    "Covariance input cannot be converted to a finite "
-                    "correlation matrix."
-                )
-            if abs(value) > 1.0 + 1e-8:
+    # Work one column at a time to avoid scalar Python work per entry and
+    # full-matrix temporary arrays. Apply the larger inverse scale first:
+    # reversing the multiplications can erase weak, representable correlations.
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        for column in range(1, dimension):
+            inv_large = np.maximum(inv_sd[:column], inv_sd[column])
+            inv_small = np.minimum(inv_sd[:column], inv_sd[column])
+            values = (cov[:column, column] * inv_large) * inv_small
+            invalid = ~np.isfinite(values) | (np.abs(values) > 1.0 + 1e-8)
+            if np.any(invalid):
+                # Preserve the first failing entry's diagnostic in column order.
+                value = values[np.flatnonzero(invalid)[0]]
+                if not np.isfinite(value):
+                    raise PyHugeError(
+                        "Covariance input cannot be converted to a finite "
+                        "correlation matrix."
+                    )
                 raise PyHugeError(
                     "Covariance input is not a valid covariance matrix."
                 )
-            value = max(-1.0, min(1.0, float(value)))
-            corr[row, column] = value
-            corr[column, row] = value
+            np.clip(values, -1.0, 1.0, out=values)
+            corr[:column, column] = values
+            corr[column, :column] = values
 
     if require_psd:
         spectral_bound = max(1.0, float(np.linalg.norm(corr, ord=np.inf)))
@@ -565,7 +570,7 @@ def _run_ct_default_rank(
     s = np.abs(np.asarray(corr, dtype=float))
     np.fill_diagonal(s, 0.0)
     upper = np.triu_indices(d, 1)
-    edge_weights = np.sort(s[upper])[::-1]
+    edge_weights = s[upper]
     edge_total = int(edge_weights.size)
     target_edges = np.ceil(
         np.linspace(
@@ -576,24 +581,31 @@ def _run_ct_default_rank(
     ).astype(np.int64)
     target_edges = np.clip(target_edges, 0, edge_total)
 
+    # Only requested ranks determine the thresholds. Partition the owned
+    # weights in place; ascending ranks reverse the descending edge order.
+    kth = edge_total - 1 - target_edges[target_edges < edge_total]
+    if kth.size:
+        edge_weights.partition(np.unique(kth))
+
     lambda_path = np.empty(nlambda, dtype=float)
     for index, target in enumerate(target_edges):
         if int(target) < edge_total:
             next_edge = max(int(target), 0)
-            lambda_path[index] = float(edge_weights[next_edge])
+            lambda_path[index] = float(edge_weights[edge_total - 1 - next_edge])
         else:
             lambda_path[index] = 0.0
 
     # These ranking buffers can total roughly 20*d^2 bytes.  They are no
     # longer needed once the thresholds are fixed, so release them before
     # native CT allocates and converts its path matrices.
-    del s, upper, edge_weights, target_edges
+    del s, upper, edge_weights, target_edges, kth
     path = _run_ct(corr, lambda_path)
-    sparsity = _ct_path_sparsity(path)
+    sparsity = _binary_path_sparsity(path)
     return lambda_path, path, sparsity
 
 
-def _ct_path_sparsity(path: list[sparse.csc_matrix]) -> np.ndarray:
+def _binary_path_sparsity(path: list[sparse.csc_matrix]) -> np.ndarray:
+    """Density of internally built canonical, zero-diagonal binary paths."""
     if len(path) == 0:
         return np.asarray([], dtype=float)
     d = int(path[0].shape[0])
@@ -634,6 +646,7 @@ def _run_glasso(
             np.asarray(lambda_path, dtype=float),
             bool(scr),
             bool(cov_output),
+            matrix_list=True,
         )
     except Exception as exc:
         raise PyHugeError(f"native glasso backend failed: {exc}") from exc
@@ -641,25 +654,24 @@ def _run_glasso(
     _warn_if_not_converged(out, "glasso")
 
     path_cube = np.asarray(out["path"], dtype=np.uint8)
-    icov_cube = np.asarray(out["icov"], dtype=float)
     loglik = np.asarray(out["loglik"], dtype=float).reshape(-1)
     df = np.asarray(out["df"], dtype=float).reshape(-1)
 
     path: list[sparse.csc_matrix] = []
-    icov: list[np.ndarray] = []
-    cov_list: list[np.ndarray] = []
     for i in range(path_cube.shape[0]):
         adj = path_cube[i] != 0
         np.fill_diagonal(adj, False)
-        path.append(sparse.csc_matrix(adj.astype(float)))
-        icov.append(np.asarray(icov_cube[i], dtype=float))
+        path.append(sparse.csc_matrix(adj, dtype=float))
+
+    # The native list owns each matrix independently. Do not stack it into a
+    # cube: selecting one matrix would then retain the entire path allocation.
+    icov = [np.asarray(matrix, dtype=float) for matrix in out["icov"]]
 
     cov_raw = out.get("cov", None)
     if cov_output and cov_raw is not None:
-        cov_cube = np.asarray(cov_raw, dtype=float)
-        for i in range(cov_cube.shape[0]):
-            cov_list.append(np.asarray(cov_cube[i], dtype=float))
-        cov_ret: Optional[list[np.ndarray]] = cov_list
+        cov_ret: Optional[list[np.ndarray]] = [
+            np.asarray(matrix, dtype=float) for matrix in cov_raw
+        ]
     else:
         cov_ret = None
 
@@ -670,6 +682,22 @@ def _build_screen_idx(corr: np.ndarray, scr_num: int) -> np.ndarray:
     d = corr.shape[0]
     if scr_num <= 0 or scr_num >= d:
         raise PyHugeError("`scr_num` must satisfy 1 <= scr_num < d.")
+    if d >= 512 and scr_num <= d // 4:
+        # A small neighborhood needs only its boundary order statistic. Work
+        # by column to avoid allocating a full d-by-d sorting index matrix.
+        result = np.empty((scr_num, d), dtype=np.int32)
+        for column in range(d):
+            scores = np.abs(corr[:, column])
+            scores[column] = -np.inf
+            cutoff = np.partition(scores, d - scr_num)[d - scr_num]
+            above = np.flatnonzero(scores > cutoff)
+            ties = np.flatnonzero(scores == cutoff)[:scr_num - above.size]
+            selected = np.concatenate((above, ties))
+            # Preserve stable descending-score order, including ties at the
+            # boundary, where argpartition alone could pick different nodes.
+            order = np.lexsort((selected, -scores[selected]))
+            result[:, column] = selected[order]
+        return result
     scores = np.abs(corr).copy()
     np.fill_diagonal(scores, -np.inf)
     order = np.argsort(-scores, axis=0, kind="stable")
@@ -759,14 +787,23 @@ def _column_support_to_path(
             ),
             shape=(d, d),
         )
-        directed.setdiag(0)
-        directed.eliminate_zeros()
+        # Native supports normally have no diagonal entries.  setdiag(0)
+        # inserts absent entries on older SciPy versions, emitting a
+        # SparseEfficiencyWarning even though they are immediately removed.
+        # Clear only stored self-loops, without changing the CSC structure.
+        diagonal_columns = np.flatnonzero(directed.diagonal())
+        if diagonal_columns.size:
+            directed = directed.copy()
+            for column in diagonal_columns:
+                start, stop = directed.indptr[column:column + 2]
+                values = directed.data[start:stop]
+                values[directed.indices[start:stop] == column] = 0.0
+            directed.eliminate_zeros()
         if sym == "or":
             adjacency = directed.maximum(directed.T)
         else:
             adjacency = directed.multiply(directed.T)
         adjacency = sparse.csc_matrix(adjacency, dtype=float)
-        adjacency.setdiag(0)
         adjacency.eliminate_zeros()
         if adjacency.nnz:
             adjacency.data.fill(1.0)
@@ -798,6 +835,7 @@ def _run_tiger(
             float(lambda_min_ratio),
             bool(covariance_input),
             False,
+            matrix_list=True,
         )
     except Exception as exc:
         raise PyHugeError(f"native tiger backend failed: {exc}") from exc
@@ -816,12 +854,11 @@ def _run_tiger(
         _warn_if_not_converged(out, "tiger")
 
     df = np.asarray(out["df"], dtype=float)
-    icov_cube = np.asarray(out["icov"], dtype=float)
 
     path = _column_support_to_path(
         out, int(actual_lambda.size), int(x_data.shape[1]), sym
     )
-    icov = [np.asarray(icov_cube[i], dtype=float) for i in range(icov_cube.shape[0])]
+    icov = [np.asarray(matrix, dtype=float) for matrix in out["icov"]]
     return path, df, icov, actual_lambda
 
 
@@ -963,7 +1000,7 @@ def huge(
         return HugeResult(
             method=method,
             lambda_path=lambda_path,
-            sparsity=_path_sparsity(path),
+            sparsity=_binary_path_sparsity(path),
             path=path,
             cov_input=cov_input,
             data=np.asarray(x, dtype=float),
@@ -1019,7 +1056,7 @@ def huge(
         else:
             lambda_path = _ensure_ct_lambda_sequence(lambda_)
             path = _run_ct(corr, lambda_path)
-            sparsity = _ct_path_sparsity(path)
+            sparsity = _binary_path_sparsity(path)
         return HugeResult(
             method=method,
             lambda_path=lambda_path,
@@ -1055,7 +1092,7 @@ def huge(
         return HugeResult(
             method=method,
             lambda_path=lambda_path,
-            sparsity=_path_sparsity(path),
+            sparsity=_binary_path_sparsity(path),
             path=path,
             cov_input=cov_input,
             data=np.asarray(x, dtype=float),
@@ -1080,7 +1117,7 @@ def huge(
     return HugeResult(
         method=method,
         lambda_path=lambda_path,
-        sparsity=_path_sparsity(path),
+        sparsity=_binary_path_sparsity(path),
         path=path,
         cov_input=False,
         data=np.asarray(x, dtype=float),
@@ -1515,7 +1552,10 @@ def huge_select(
                     "A StARS subsample returned a path with an unexpected length."
                 )
             for li, p in enumerate(path_list):
-                rows, cols = p.nonzero()
+                # Integer edge counts do not require CSC.nonzero's row sort.
+                coordinates = p.tocoo(copy=False)
+                nonzero = coordinates.data != 0
+                rows, cols = coordinates.row[nonzero], coordinates.col[nonzero]
                 if packed_frequency:
                     upper = rows < cols
                     packed = _stars_upper_triangle_indices(
@@ -1627,10 +1667,10 @@ def huge_npn(
     # followed by dividing each column by its sample sd.
     ranks = np.apply_along_axis(stats.rankdata, 0, np.asarray(x, dtype=float))
     if npn_func == "shrinkage":
-        z = stats.norm.ppf(ranks / (n + 1.0))
+        z = np.ascontiguousarray(special.ndtri(ranks / (n + 1.0)))
     else:
         trunc = 1.0 / (4.0 * (n ** 0.25) * math.sqrt(np.pi * np.log(max(n, 2))))
-        z = stats.norm.ppf(np.clip(ranks / n, trunc, 1.0 - trunc))
+        z = np.ascontiguousarray(special.ndtri(np.clip(ranks / n, trunc, 1.0 - trunc)))
 
     col_sd = z.std(axis=0, ddof=1)
     col_sd[~np.isfinite(col_sd) | (col_sd == 0)] = 1.0
@@ -1823,29 +1863,72 @@ def huge_generator(
     )
 
 
+def _roc_support(value, name: str):
+    """Validate a graph and retain its strict upper-triangle support."""
+    if not sparse.issparse(value):
+        return np.triu(_to_dense_matrix(value, name) != 0, 1)
+
+    if value.ndim != 2:
+        raise PyHugeError(f"`{name}` must be a 2D array-like matrix.")
+    try:
+        owned = value.copy()
+        canonical = getattr(owned, "has_canonical_format", False)
+        coo = owned.tocoo(copy=False)
+        rows, cols, values = coo.row, coo.col, coo.data
+        if not canonical:
+            coordinates = np.rec.fromarrays((rows, cols), names=("row", "col"))
+            unique, inverse = np.unique(coordinates, return_inverse=True)
+            if owned.format == "lil":
+                # LIL toarray() assigns rather than adds: manually supplied
+                # duplicates retain the last value, even after NaN or Inf.
+                last = np.full(unique.size, -1, dtype=np.intp)
+                np.maximum.at(last, inverse, np.arange(coo.nnz, dtype=np.intp))
+                values = coo.data[last]
+            else:
+                # Other formats accumulate in storage order and source dtype.
+                # sum_duplicates() can reorder floating-point cancellation;
+                # casting first changes integer-overflow/complex semantics.
+                values = np.zeros(unique.size, dtype=coo.dtype)
+                with np.errstate(over="ignore", invalid="ignore"):
+                    np.add.at(values, inverse, coo.data)
+            rows, cols = unique.row, unique.col
+        values = np.asarray(values, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise PyHugeError(f"`{name}` must be a numeric 2D matrix.") from exc
+    if not np.isfinite(values).all():
+        raise PyHugeError(f"`{name}` contains non-finite values.")
+    keep = (rows < cols) & (values != 0)
+    return sparse.csr_matrix(
+        (np.ones(np.count_nonzero(keep), dtype=bool), (rows[keep], cols[keep])),
+        shape=coo.shape,
+    )
+
+
 def huge_roc(
     path: Sequence[np.ndarray | sparse.spmatrix],
     theta: np.ndarray | sparse.spmatrix,
     verbose: bool = True,
     plot: bool = False,
 ) -> HugeRocResult:
-    """Native ROC metrics for graph path.
+    """Native ROC metrics for a graph path, counting strict upper-triangle edges.
 
+    Nonzero entries indicate edges. Duplicate handling follows the source
+    sparse format's dense-conversion semantics. Sparse inputs remain sparse,
+    and diagonal and lower-triangle entries are ignored after finite-value
+    validation. Metrics retain the input path order; only the ROC integration
+    sorts by false-positive and then true-positive rate.
     ``verbose`` is accepted for R-API compatibility but not yet implemented.
     """
     if len(path) == 0:
         raise PyHugeError("`path` must contain at least one adjacency matrix.")
 
-    theta_dense = _to_dense_matrix(theta, "theta")
-    if theta_dense.shape[0] != theta_dense.shape[1]:
+    truth_u = _roc_support(theta, "theta")
+    if truth_u.shape[0] != truth_u.shape[1]:
         raise PyHugeError("`theta` must be square.")
 
-    d = theta_dense.shape[0]
-    truth = np.asarray(theta_dense != 0, dtype=bool)
-    np.fill_diagonal(truth, False)
-    truth_u = np.triu(truth, 1)
-
-    total_pos = int(np.count_nonzero(truth_u))
+    d = truth_u.shape[0]
+    truth_sparse = sparse.issparse(truth_u)
+    total_pos = int(truth_u.nnz if truth_sparse else np.count_nonzero(truth_u))
     total_pairs = d * (d - 1) // 2
     total_neg = total_pairs - total_pos
     if total_pos == 0 or total_neg == 0:
@@ -1858,15 +1941,25 @@ def huge_roc(
     fp = np.zeros(len(path), dtype=float)
     f1 = np.zeros(len(path), dtype=float)
 
+    truth_coordinates = None
     for i, p in enumerate(path):
-        pred = _to_dense_matrix(p, f"path[{i + 1}]")
-        if pred.shape != (d, d):
+        pred_u = _roc_support(p, f"path[{i + 1}]")
+        if pred_u.shape != (d, d):
             raise PyHugeError(f"`path[{i + 1}]` must have shape ({d}, {d}).")
 
-        pred_u = np.triu(pred != 0, 1)
-        tp_count = int(np.count_nonzero(pred_u & truth_u))
-        fp_count = int(np.count_nonzero(pred_u & (~truth_u)))
-        pred_count = int(np.count_nonzero(pred_u))
+        pred_sparse = sparse.issparse(pred_u)
+        pred_count = int(pred_u.nnz if pred_sparse else np.count_nonzero(pred_u))
+        if truth_sparse and pred_sparse:
+            tp_count = int(pred_u.multiply(truth_u).nnz)
+        elif pred_sparse:
+            tp_count = int(np.count_nonzero(truth_u[pred_u.nonzero()]))
+        elif truth_sparse:
+            if truth_coordinates is None:
+                truth_coordinates = truth_u.nonzero()
+            tp_count = int(np.count_nonzero(pred_u[truth_coordinates]))
+        else:
+            tp_count = int(np.count_nonzero(pred_u & truth_u))
+        fp_count = pred_count - tp_count
 
         tp[i] = tp_count / total_pos
         fp[i] = fp_count / total_neg
@@ -1901,11 +1994,14 @@ def huge_inference(
 
     Gaussian inference uses the de-biased precision estimator.  For a
     nonparanormal model, ``method`` selects the score or Wald statistic from
-    the R implementation.  The latter methods are substantially more
-    expensive because they estimate a ``d^2`` by ``d^2`` covariance matrix.
+    the R implementation. The nonparanormal methods stream their variance
+    calculation using O(n*d + d*d) working memory; their arithmetic still
+    costs O(n*n*d*d + n*d*d*d).
     Data must contain at least two observations and no constant columns;
     nonparanormal inference additionally requires at least two variables.
     The supplied precision-like matrix must have a positive diagonal.
+    Nonparanormal edge variances must remain finite; zero-variance rank limits
+    are accepted when they yield finite edge p-values.
     """
 
     if type_ not in _ALLOWED_INFERENCE_TYPES:
@@ -1998,15 +2094,17 @@ def huge_inference(
         if method == "score":
             with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
                 t_u = t_mat.T @ u_mat
-                u_t = u_mat @ t_mat
-                base = t_u @ t_mat
-                numerator = base - t_mat * np.diag(t_u)[:, None]
-                diag_idx = np.diag_indices(d)
-                numerator[diag_idx] = (
-                    np.diag(base)
-                    - np.diag(t_mat) * np.diag(t_u)
-                    - np.diag(t_mat) * np.diag(u_t)
-                    + np.diag(t_mat) ** 2 * np.diag(u_mat)
+                # Removing T[j,k] removes this coefficient from the product.
+                # Clear it before multiplication to avoid cancellation.
+                np.fill_diagonal(t_u, 0.0)
+                numerator = t_u @ t_mat
+                # Diagonal scores remove the entry from both factors. Compute
+                # their small quadratic forms directly, rather than subtract
+                # several order-one terms when T is nearly diagonal.
+                t_off = t_mat.copy()
+                np.fill_diagonal(t_off, 0.0)
+                np.fill_diagonal(
+                    numerator, np.sum(t_off * (u_mat @ t_off), axis=0)
                 )
                 score = numerator / diag_outer
                 statistic = score * np.sqrt(float(n)) / (2.0 * sigma)
@@ -2029,7 +2127,9 @@ def huge_inference(
         # Score inference can have an undefined diagonal even when every edge
         # p-value is a valid finite limit.  Only off-diagonal values represent
         # tested graph edges.
-        finite_p = np.isfinite(p[offdiag]).all()
+        # Overflowed variance can produce a misleading finite p=1. Keep
+        # zero-variance rank limits when their edge p-values remain finite.
+        finite_p = np.isfinite(p[offdiag]).all() and np.isfinite(sigma[offdiag]).all()
     if not finite_p:
         raise PyHugeError(
             "Inference produced non-finite edge p-values; "

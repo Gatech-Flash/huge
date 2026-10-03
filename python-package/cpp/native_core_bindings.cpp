@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <random>
 #include <tuple>
 #include <vector>
@@ -26,11 +27,55 @@ static std::vector<double> numpy_to_colmajor(py::array_t<double, py::array::c_st
     return out;
 }
 
+// Move each column-major matrix into its own NumPy owner. Keeping one result
+// then retains only that matrix, not the entire regularization-path buffer.
+static py::array_t<double> matrix_to_owned_numpy(huge::Matrix& matrix) {
+    const py::ssize_t rows = matrix.rows;
+    const py::ssize_t cols = matrix.cols;
+    const py::ssize_t itemsize = sizeof(double);
+    const py::ssize_t limit = std::numeric_limits<py::ssize_t>::max();
+    if (rows <= 0 || cols <= 0 || rows > limit / itemsize ||
+        cols > limit / (rows * itemsize) ||
+        matrix.v.size() != static_cast<size_t>(rows) * cols)
+        throw std::runtime_error("native matrix output has invalid dimensions.");
+
+    auto values = std::make_unique<std::vector<double>>(std::move(matrix.v));
+    double* data = values->data();
+    // Until capsule creation succeeds, unique_ptr handles exceptions. After
+    // release, the capsule also handles ndarray/list construction failures.
+    py::capsule owner(values.get(), [](void* pointer) noexcept {
+        delete static_cast<std::vector<double>*>(pointer);
+    });
+    values.release();
+    return py::array_t<double>(
+        {rows, cols}, {itemsize, rows * itemsize}, data, owner);
+}
+
+static py::object matrix_path_to_numpy(std::vector<huge::Matrix>& matrices,
+                                      int d, bool matrix_list) {
+    if (matrix_list) {
+        py::list out;
+        for (auto& matrix : matrices)
+            out.append(matrix_to_owned_numpy(matrix));
+        return out;
+    }
+
+    // Keep the default private binding's C-contiguous cube contract.
+    int nlambda = static_cast<int>(matrices.size());
+    auto out = py::array_t<double>({nlambda, d, d});
+    auto values = out.mutable_unchecked<3>();
+    for (int k = 0; k < nlambda; k++)
+        for (int i = 0; i < d; i++)
+            for (int j = 0; j < d; j++)
+                values(k, i, j) = matrices[k](i, j);
+    return out;
+}
+
 // ---- Glasso binding ----
 
 static py::dict py_hugeglasso(py::array_t<double, py::array::c_style | py::array::forcecast> s,
                                py::array_t<double, py::array::c_style | py::array::forcecast> lambdas,
-                               bool scr, bool cov_output) {
+                               bool scr, bool cov_output, bool matrix_list) {
     int d, d2;
     auto S = numpy_to_colmajor(s, d, d2);
     if (d != d2) throw std::runtime_error("S must be square.");
@@ -53,13 +98,11 @@ static py::dict py_hugeglasso(py::array_t<double, py::array::c_style | py::array
     auto sparsity = py::array_t<double>(nlambda);
     auto df = py::array_t<double>(nlambda);
     auto path = py::array_t<uint8_t>({nlambda, d, d});
-    auto icov_out = py::array_t<double>({nlambda, d, d});
 
     auto LL = loglik.mutable_unchecked<1>();
     auto SP = sparsity.mutable_unchecked<1>();
     auto DF = df.mutable_unchecked<1>();
     auto P = path.mutable_unchecked<3>();
-    auto I = icov_out.mutable_unchecked<3>();
 
     for (int k = 0; k < nlambda; k++) {
         LL(k) = res.loglik[k];
@@ -69,25 +112,18 @@ static py::dict py_hugeglasso(py::array_t<double, py::array::c_style | py::array
             for (int j = 0; j < d; j++) {
                 P(k, i, j) =
                     (i != j && res.icov[k](i, j) != 0.0) ? 1 : 0;
-                I(k, i, j) = res.icov[k](i, j);
             }
     }
 
     py::dict out;
     out["hit_max_iter"] = res.hit_max_iter;
     out["path"] = path;
-    out["icov"] = icov_out;
+    out["icov"] = matrix_path_to_numpy(res.icov, d, matrix_list);
     out["loglik"] = loglik;
     out["sparsity"] = sparsity;
     out["df"] = df;
     if (cov_output) {
-        auto cov = py::array_t<double>({nlambda, d, d});
-        auto C = cov.mutable_unchecked<3>();
-        for (int k = 0; k < nlambda; k++)
-            for (int i = 0; i < d; i++)
-                for (int j = 0; j < d; j++)
-                    C(k, i, j) = res.cov[k](i, j);
-        out["cov"] = cov;
+        out["cov"] = matrix_path_to_numpy(res.cov, d, matrix_list);
     } else {
         out["cov"] = py::none();
     }
@@ -309,7 +345,7 @@ static py::dict py_spmb_scr(py::array_t<double, py::array::c_style | py::array::
 static py::dict py_spmb_graphsqrt(
         py::array_t<double, py::array::c_style | py::array::forcecast> data,
         py::object lambdas_obj, int nlambda, double lambda_min_ratio,
-        bool covariance_input, bool dense_output) {
+        bool covariance_input, bool dense_output, bool matrix_list) {
     int n, d;
     auto X = numpy_to_colmajor(data, n, d);
     std::vector<double> lam_vec;
@@ -334,17 +370,10 @@ static py::dict py_spmb_graphsqrt(
     }
     nlambda = static_cast<int>(res.lambda.size());
 
-    auto icov = py::array_t<double>({nlambda, d, d});
-    auto I = icov.mutable_unchecked<3>();
-    for (int k = 0; k < nlambda; k++)
-        for (int i = 0; i < d; i++)
-            for (int j = 0; j < d; j++)
-                I(k, i, j) = res.icov[k](i, j);
-
     py::dict out;
     out["hit_max_iter"] = res.hit_max_iter;
     append_column_output(out, res.columns, d, nlambda, dense_output);
-    out["icov"] = icov;
+    out["icov"] = matrix_path_to_numpy(res.icov, d, matrix_list);
     out["lambda"] = py::cast(res.lambda);
     out["path_truncated"] = res.path_truncated;
     return out;
@@ -553,9 +582,11 @@ PYBIND11_MODULE(_native_core, m) {
           py::arg("nlambda") = 10, py::arg("lambda_min_ratio") = 0.1,
           py::arg("covariance_input") = false,
           py::arg("dense_output") = true,
+          py::arg("matrix_list") = false,
           "Correlation-domain TIGER graph path core.");
     m.def("hugeglasso", &py_hugeglasso, py::arg("s"), py::arg("lambdas"), py::arg("scr") = false,
-          py::arg("cov_output") = false, "Graphical lasso path core.");
+          py::arg("cov_output") = false, py::arg("matrix_list") = false,
+          "Graphical lasso path core.");
     m.def("ric", &py_ric, py::arg("x"), py::arg("r"),
           "Rotation information criterion core.");
     m.def("sfgen", &py_sfgen, py::arg("d0"), py::arg("d"), py::arg("seed") = py::none(),

@@ -7,7 +7,7 @@ random_shape = function(seed) {
   list(n = sample(15:120, 1), d = sample(4:50, 1), nlambda = sample(1:8, 1))
 }
 
-test_that("all methods: outputs symmetric, sparsity in [0,1] and monotone", {
+test_that("all methods: outputs symmetric and sparsity in [0,1]", {
   for (seed in 1:6) {
     s = random_shape(seed)
     x = matrix(rnorm(s$n * s$d), s$n, s$d)
@@ -28,8 +28,9 @@ test_that("all methods: outputs symmetric, sparsity in [0,1] and monotone", {
         expect_identical(max(abs(diag(pm))), 0)
       }
       expect_true(all(fit$sparsity >= 0 & fit$sparsity <= 1))
-      # lambda is decreasing along the path, so sparsity is nondecreasing
-      if (s$nlambda > 1) expect_true(all(diff(fit$sparsity) >= -1e-12))
+      # Only thresholding guarantees nested supports; regression edges can exit.
+      if (m == "ct" && s$nlambda > 1)
+        expect_true(all(diff(fit$sparsity) >= -1e-12))
     }
   }
 })

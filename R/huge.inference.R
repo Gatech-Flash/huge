@@ -8,7 +8,13 @@
 #' Implements the inference for high dimensional graphical models, including Gaussian and Nonparanormal graphical models
 #' We consider the problems of testing the presence of a single edge and the hypothesis is that the edge is absent.
 #'
-#' For Nonparanormal graphical model we provide Score test method and Wald Test. However it is really slow for inferencing on Nonparanormal model, especially for large data. Gaussian inference supports one variable, while Nonparanormal inference requires at least two. Nonparanormal score-test diagonal p-values do not represent edges and may be undefined; every tested off-diagonal p-value must be finite.
+#' Nonparanormal inference provides score and Wald tests. It streams the rank-based
+#' variance calculations using \eqn{O(nd + d^2)} working memory; computation still
+#' requires \eqn{O(n^2 d^2 + nd^3)} arithmetic operations. Gaussian inference
+#' supports one variable, while Nonparanormal inference requires at least two.
+#' Nonparanormal score-test diagonal p-values do not represent edges and may be
+#' undefined; every tested off-diagonal p-value must be finite. Inputs that
+#' overflow an off-diagonal variance are rejected.
 #'
 #'
 #' @param data A finite numeric \code{n} by \code{d} data matrix with at least two observations and no constant columns.
@@ -133,138 +139,69 @@ huge.inference = function(data, T, adj, alpha = 0.05, type = "Gaussian", method 
     diag.outer = outer(diag(T), diag(T))
     if(any(!is.finite(diag.outer)) || any(diag.outer <= 0))
       stop("Products of T diagonal entries must remain finite and positive.")
-    x=data
-    U<-matrix(0,d,d)
-    G=list()
-    Test<-matrix(0,d,d)
-    for(i in 1:n)
-      G[[i]]<-matrix(0,d,d)
-    Temp_jk<-matrix(0,n,n)
-    for(j in 1:d)
-    {
-      for(k in 1:d)
-      {
-        if(j==k)
-        {
-          U[j, k] = 1
-          next
-        }
-
-        for(i1 in 1:n)
-        {
-          for(i2 in 1:n)
-          {
-            Temp_jk[i1, i2] = sign(x[i1, j] - x[i2, j]) *
-              sign(x[i1, k] - x[i2, k])
-            G[[i1]][j, k] = G[[i1]][j, k] - pi/2*Temp_jk[i1, i2]
-
-          }
-        }
-        U[j, k] = sin(pi/2*sum(Temp_jk)/((n-1)*n))
-        for(i in 1:n)
-          G[[i]][j, k] = G[[i]][j, k]/(n-1) + asin(U[j, k])
-      }
+    # Integer subtraction can overflow before sign() sees a finite rank pair.
+    # Convert only the working copy; the returned data keeps its input type.
+    if(is.integer(data))
+      storage.mode(data) = "double"
+    # Each signed cross-product contains one observation's concordances.
+    # Recompute it in the variance pass to avoid retaining n matrices of size d^2.
+    concordance = matrix(0, d, d)
+    for(i in seq_len(n)) {
+      signed = sign(sweep(data, 2, data[i, ], "-"))
+      concordance = concordance + crossprod(signed)
     }
-    #F
-    F<-apply(U,1,function(x) sqrt(1-x^2))
-    #R
-    R<-matrix(0,d^2,d^2)
-    for (i in 1:n)
-      R<-R + as.matrix(as.vector(F*G[[i]]))%*%as.vector(F*G[[i]])
-    R<-R/n
-
-    #kronecker product of T
-    T_k<-kronecker(T, T)
+    U = sin((pi/2)*concordance/(n*(n-1)))
+    diag(U) = 1
+    F = sqrt(pmax(0, 1 - U*U))
+    asin.U = asin(U)
+    scale = pi/(2*(n-1))
+    T.transpose = t(T)
+    sigma.sq = matrix(0, d, d)
+    for(i in seq_len(n)) {
+      signed = sign(sweep(data, 2, data[i, ], "-"))
+      G = asin.U - scale*crossprod(signed)
+      diag(G) = 0
+      # vec(T' H T) = (T' %x% T') vec(H). Squaring its entries
+      # directly gives the old quadratic variance without either d^2-by-d^2
+      # covariance or Kronecker matrix; H = F * G for this observation.
+      standardized = (T.transpose%*%(F*G)%*%T)/diag.outer
+      sigma.sq = sigma.sq + standardized^2
+    }
+    sigma = sqrt(sigma.sq/n)
 
     if(method == "score")
     {
-      S<-matrix(0,d,d)
-      sigma<-matrix(0,d,d)
-      #ST_n
-      ST_n<-matrix(0,d,d)
-      for(j in 1:d)
-      {
-        for(k in 1:d)
-        {
-          #S
-          ej<-matrix(0,d,1)
-          ek<-matrix(0,d,1)
-          ej[j] = 1
-          ek[k] = 1
-          T_h<-T
-          T_h[j, k]=0
-          S[j, k] = t(ej)%*%t(T_h)%*%U%*%T_h%*%ek/(T[j, j]*T[k, k])
-
-          idx <- (k - 1) * d + j
-
-          #w
-          temp1<-T_k[,idx]
-          temp1<-temp1[-idx]
-          w<-as.matrix((-temp1)/T_k[idx, idx])
-
-          #sigma
-          temp2<-R[idx,]
-          temp2<-as.matrix(temp2[-idx])
-          sigma[j, k] = sqrt(R[idx, idx] - 2*t(temp2)%*%w + t(w)%*%R[-idx, -idx]%*%w)
-
-          ST_n[j, k] = S[j, k]*sqrt(n)/(2*sigma[j, k])
-
-        }
-      }
-
-      #p-value
-      p<-2*(1 - pnorm(abs(ST_n)))
-      rm(temp1,temp2,ST_n,S)
+      TU = T.transpose%*%U
+      # Clearing T[j,k] removes TU[j,j]*T[j,k]. Remove the coefficient
+      # before multiplication to avoid subtracting nearly equal products.
+      diag(TU) = 0
+      numerator = TU%*%T
+      # On the diagonal the old T_h clears the entry in both factors.
+      T.off = T
+      diag(T.off) = 0
+      diag(numerator) = colSums(T.off*(U%*%T.off))
+      statistic = (numerator/diag.outer)*sqrt(n)/(2*sigma)
     }
 
     if(method == "wald")
     {
-      T_W<-matrix(0,d,d)
-      sigma<-matrix(0,d,d)
-      #W_n
-      W_n<-matrix(0,d,d)
-      temp1<-T%*%U
-      temp2<-U%*%T
-      for(j in 1:d)
-      {
-        for(k in 1:d)
-        {
-          idx <- (k - 1) * d + j
-
-          #w
-          temp3<-T_k[,idx]
-          temp3<-temp3[-idx]
-          w<-as.matrix((-temp3)/T_k[idx,idx])
-
-          #sigma
-          temp4<-R[idx,]
-          temp4<-as.matrix(temp4[-idx])
-          sigma[j, k] = sqrt(R[idx, idx] - 2*t(temp4)%*%w + t(w)%*%R[-idx, -idx]%*%w)
-
-          #T_W
-          ej<-matrix(0,d,1)
-          ek<-matrix(0,d,1)
-          ej[j] = 1
-          ek[k] = 1
-          T_W[j ,k] = (T[j,k]*t(ej)%*%temp1%*%ek + T[j, k]*t(ej)%*%temp2%*%ek - t(ej)%*%t(T)%*%temp2%*%ek)/(t(ej)%*%temp1%*%ek + t(ej)%*%temp2%*%ek - 1)
-          W_n[j, k] = T_W[j, k]*sqrt(n)/(2*sigma[j, k]*T[j, j]*T[k, k])
-
-        }
-      }
-
-
-      #p-value
-      p<-2*(1 - pnorm(abs(W_n)))
-      rm(temp1,temp2,temp3,temp4,T_W,W_n)
+      TU = T%*%U
+      UT = U%*%T
+      numerator = T*(TU + UT) - T.transpose%*%UT
+      denominator = TU + UT - 1
+      statistic = (numerator/denominator)*sqrt(n)/(2*sigma*diag.outer)
     }
-    rm(R,F,G,w,T_k)
+    p = 2*(1 - pnorm(abs(statistic)))
+    dimnames(p) = NULL
   }
 
   offdiag = row(p) != col(p)
   finite.p = if(type == "Gaussian") {
     all(is.finite(p))
   } else {
-    all(is.finite(p[offdiag]))
+    # Infinite variance must not silently turn a degenerate edge into p = 1.
+    # Zero variance remains valid when the resulting edge p-value is finite.
+    all(is.finite(p[offdiag])) && all(is.finite(sigma[offdiag]))
   }
   if(!finite.p)
     stop(paste(

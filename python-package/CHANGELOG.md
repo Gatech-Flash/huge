@@ -1,5 +1,81 @@
 # Changelog
 
+## 2.0.2
+
+- Require pybind11 2.12 or newer for source builds so NumPy 2 inputs retain
+  correct MB/TIGER graph support; use 2.13 on Python 3.13 and 3.0 on Python
+  3.14+. Test exact build dependency floors with NumPy 1 and NumPy 2; reuse
+  the full package test workflow before release artifacts are built.
+- Instrument both the Python binding and shared core in isolated ASan/UBSan
+  checks, covering NumPy capsule ownership, retained views, cleanup and
+  concurrent calls. Require working sanitizer runtimes and tests with no skips.
+
+- Reduce MB/glasso/TIGER graph packaging overhead by computing density from
+  canonical stored support and converting glasso boolean adjacency directly
+  to sparse float matrices. Preserve generic sparse-path counting semantics.
+
+- Reduce NPN shrinkage/truncation memory use by evaluating inverse-normal
+  scores directly with SciPy, preserving probability formulas, array layout
+  and numerical results.
+
+- Avoid sorting CSC coordinates when accumulating StARS edge frequencies.
+  Preserve duplicate/zero storage semantics and variability arithmetic;
+  measured gains are strongest for CT paths with many edges, while empty
+  paths can be slightly slower.
+- Select automatic CT thresholds with in-place order statistics instead of
+  sorting every edge weight. Preserve exact thresholds and strict tie handling;
+  measured gains apply to default paths, while very long paths can be slower.
+- Defer TIGER precision matrix allocation until the common certified path
+  prefix is known, reducing memory use on truncated paths. Reuse the existing
+  sparse coefficients while preserving solver arithmetic, signed zeros,
+  convergence rules, and public outputs.
+- Use sparse precision columns for glasso inverse-residual checks on large,
+  sparse components. Small/dense components and numerically ambiguous cases
+  keep the original dense calculation. Gains depend on BLAS and workload;
+  solver tolerances and public output contracts remain unchanged.
+- Block large RIC cross-products while retaining the original full calculation
+  for small dimensions and ambiguous numerical-zero cases. This reduces common
+  native scratch use; dense fallback remains quadratic, and nonzero outputs can
+  differ within floating-point forward-error bounds.
+- Return independently owned glasso/TIGER precision matrices and requested
+  glasso covariance matrices without copying the native path into a shared
+  NumPy cube. Keeping one selected matrix no longer retains the entire path.
+  Public arrays are now column-major; default private binding outputs remain
+  unchanged.
+- Preserve sparse storage during ROC evaluation, including mixed paths,
+  repeated coordinates, explicit zeros, and source-dtype accumulation order.
+- Keep NumPy's structured coordinate grouping for noncanonical sparse ROC
+  inputs, reverting the manual lexsort optimization after reviewing its
+  workload benefit and maintenance cost. Retain sparse evaluation, original
+  accumulation order, source-dtype arithmetic, and LIL last-write behavior.
+- Stabilize nonparanormal score calculations for nearly diagonal or strongly
+  unbalanced precision matrices, and reject overflowed edge variances instead
+  of returning p=1.
+- Extend R/Python inference parity to rank limits, asymmetric precision,
+  ties and extreme scales; allow undefined diagonal values in the R bridge.
+- Stop TIGER work on lambda suffixes already excluded from the common certified
+  prefix, without changing retained estimates or convergence thresholds.
+- Use partial selection for small MB screening neighborhoods, preserving
+  stable tie ordering and retaining full sorting for large neighborhoods.
+- Avoid inserting explicit diagonal zeros while converting native MB/TIGER
+  supports to sparse graphs, eliminating `SparseEfficiencyWarning` on older
+  supported SciPy versions while still removing self-loops.
+- Expand CI to the full non-R suite and add independent solver optimality,
+  strict R/Python parity, sparse-support, and native sanitizer checks.
+- Consolidate the non-R Python CI matrix in the main package workflow;
+  retain the wrapper workflow's six required R-runtime end-to-end checks.
+- Improved shared-core Cholesky memory locality for glasso log-determinants
+  and TIGER covariance validation, retaining all numerical checks.
+- Cached MB active-set Gram rows and coefficients during coordinate sweeps,
+  with reusable scratch limited to 514 KiB per worker for 16--256 active
+  predictors. Screening and convergence tolerances are unchanged;
+  floating-point rounding may differ slightly.
+- Vectorized covariance-to-correlation conversion one column at a time,
+  preserving extreme-scale multiplication order and using only O(d)
+  temporary storage beyond the output matrix.
+- Added an isolated, interleaved before/after benchmark with numerical
+  regression checks in `benchmark/compare_native_performance.py`.
+
 ## 2.0.1
 
 - Fixed a BLAS-dependent rounding issue in RIC selection. The rotated inner
@@ -7,8 +83,8 @@
   any value inside a dot product's roundoff interval, so a mathematically zero
   regularization parameter could come back as a tiny positive value. RIC now
   certifies such values to exact zero with a pair-specific forward-error
-  bound, which is scale-aware and preserves correlations the working precision
-  can represent. Selected lambda values are reproducible across BLAS
+  bound. This scale-aware cutoff removes rounding artifacts within that bound;
+  values near its boundary can still classify differently across BLAS
   implementations. Reported by CRAN's ATLAS additional check for the R package;
   the shared core is identical, so `pyhuge` was affected the same way.
 - `huge_select()` no longer gates the zero-lambda refit on a bitwise-zero

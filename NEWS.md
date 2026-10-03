@@ -1,3 +1,39 @@
+# huge 2.0.2
+
+* TIGER creates dense precision matrices after establishing the common
+  certified path prefix, avoiding allocation for discarded path points.
+  Existing sparse coefficients supply the retained matrices without changing
+  solver arithmetic, signed zeros, convergence rules, or public outputs.
+* Glasso evaluates inverse residuals using sparse precision columns for large,
+  sparse components, reducing certification work especially with reference
+  BLAS. Small or dense components, unsafe numerical bounds, and values near
+  the existing refinement/rejection thresholds retain the original dense
+  calculation. Solver tolerances and public output contracts are unchanged.
+* RIC processes large rotated cross-products in column panels, reducing work
+  and native scratch space for ordinary inputs. Small dimensions and ambiguous
+  numerical-zero cases retain the original full-matrix calculation. Dense
+  fallback still requires quadratic scratch memory; nonzero results can differ
+  within floating-point forward-error bounds as BLAS kernels change.
+* Nonparanormal inference now streams its variance calculation, avoiding
+  fourth-order dense intermediates. Score and Wald formulas, rank ties, and
+  undefined score diagonals are preserved. Rank comparisons now handle the
+  full finite integer range, and overflowed edge variances are rejected.
+* ROC evaluation retains sparse graph storage, including mixed dense/sparse
+  paths, and validates graph dimensions and finite entries before counting.
+* TIGER now stops work beyond the shortest known certified path prefix
+  across nodes. Retained estimates, convergence thresholds, truncation
+  warnings, and rejection of uncertified supplied lambdas are unchanged.
+* Vectorized R covariance normalization within each column, preserving
+  extreme-scale multiplication order, first-error diagnostics, and PSD checks.
+* Improved memory locality in the shared glasso log-determinant and TIGER
+  covariance positive-semidefiniteness checks by transposing the temporary
+  Cholesky factor storage. Scaling, numerical thresholds, and validation
+  remain unchanged.
+* MB now caches compact active-set Gram rows and coefficients during repeated
+  coordinate sweeps. The cache is reused per worker, limited to 514 KiB, and
+  used only for 16--256 active predictors. Screening and convergence
+  tolerances are unchanged; floating-point rounding may differ slightly.
+
 # huge 2.0.1
 
 * Fixed a BLAS-dependent rounding issue in RIC selection. The rotated inner
@@ -5,8 +41,8 @@
   any value inside a dot product's roundoff interval, so a mathematically zero
   regularization parameter could come back as a tiny positive value. RIC now
   certifies such values to exact zero using a pair-specific forward-error
-  bound, which is scale-aware and keeps correlations the working precision can
-  represent. Selected lambda values are therefore reproducible across BLAS
+  bound. This scale-aware cutoff removes rounding artifacts within that bound;
+  values near its boundary can still classify differently across BLAS
   implementations. Reported by CRAN's ATLAS additional check.
 * `huge.select()` (R) and `huge_select()` (Python) no longer gate the
   zero-lambda refit on a bitwise-zero lambda. A residual too small for a

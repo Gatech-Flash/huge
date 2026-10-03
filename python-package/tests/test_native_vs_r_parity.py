@@ -72,14 +72,11 @@ def test_parity_glasso_path_and_ebic_selection():
 
     assert np.allclose(fit.lambda_path, r_ref["lambda"], rtol=0.0, atol=1e-12)
 
-    max_edges = x.shape[1] * (x.shape[1] - 1) / 2.0
-    edge_gap = np.mean(np.abs(_edge_counts(fit.path) - r_ref["edges"])) / max_edges
-    sparsity_gap = float(np.mean(np.abs(fit.sparsity - r_ref["sparsity"])))
-
-    # Implementations are aligned but not strictly bitwise-identical; enforce coarse parity.
-    assert edge_gap <= 0.25
-    assert sparsity_gap <= 0.25
-    assert abs((sel.opt_index or 1) - int(r_ref["opt_index"])) <= 4
+    # Identical data, penalties, and the shared deterministic core should not
+    # permit missing edges or a different EBIC-selected model.
+    np.testing.assert_array_equal(_edge_counts(fit.path), r_ref["edges"])
+    np.testing.assert_allclose(fit.sparsity, r_ref["sparsity"], rtol=0.0, atol=1e-12)
+    assert sel.opt_index == int(r_ref["opt_index"])
 
 
 @pytest.mark.skipif(not HAS_R_HUGE, reason="requires local R with package huge")

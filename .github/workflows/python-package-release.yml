@@ -1,4 +1,4 @@
-name: python-package-release
+name: huge 2.0.2 isolated cross-platform validation
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  verify:
+  validate-version:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,31 +34,10 @@ jobs:
           assert f'__version__ = "{version}"' in init_text
           assert f"## {version}" in changelog
           PY
-      - uses: r-lib/actions/setup-r@v2
-      - name: Install system BLAS
-        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - name: Install R package dependencies
-        env:
-          R_LIBS_USER: ${{ github.workspace }}/.Rlib
-        run: |
-          mkdir -p "${R_LIBS_USER}"
-          R -q -e 'install.packages(c("Rcpp", "igraph", "Matrix", "MASS"), repos="https://cloud.r-project.org")'
-      - name: Install local huge package into isolated R library
-        env:
-          R_LIBS_USER: ${{ github.workspace }}/.Rlib
-        run: R CMD INSTALL "${GITHUB_WORKSPACE}"
-      - name: Install Python test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e "./python-package[test,viz,runtime]"
-      - name: Check shared C++ core mirrors
-        run: tools/check_core_mirrors.sh
-      - name: Run full Python suite against the current R package
-        env:
-          R_LIBS_USER: ${{ github.workspace }}/.Rlib
-        run: |
-          cd python-package
-          pytest -q -rA
+
+  verify:
+    needs: validate-version
+    uses: ./.github/workflows/python-package-tests.yml
 
   sdist:
     needs: verify
@@ -82,6 +61,8 @@ jobs:
       - name: Install and smoke-test source distribution
         env:
           SDIST_VENV: ${{ runner.temp }}/pyhuge-sdist-venv
+          OMP_NUM_THREADS: "2"
+          OMP_DYNAMIC: "FALSE"
         run: |
           set -euo pipefail
           sudo apt-get update -y
@@ -111,7 +92,7 @@ jobs:
           workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
           assert not package_path.is_relative_to(workspace)
           assert pyhuge.test(require_runtime=True)["native_extension"]
-          assert native.omp_max_threads() >= 1
+          assert native.omp_max_threads() == 2
           assert pyhuge.huge_stockdata().data.shape == (1258, 452)
 
           data = np.random.default_rng(1).normal(size=(30, 4))
@@ -184,6 +165,10 @@ jobs:
                   item.startswith("pyhuge.libs/libopenblas") and ".so" in item
                   for item in names
               ), f"{name} does not contain a repaired OpenBLAS library"
+              assert any(
+                  item.startswith("pyhuge.libs/libgomp") and ".so" in item
+                  for item in names
+              ), f"{name} does not contain a repaired OpenMP library"
 
           assert found == expected, found
           PY
@@ -206,6 +191,7 @@ jobs:
         run: |
           docker run --rm --platform linux/amd64 \
             --volume "${GITHUB_WORKSPACE}/dist:/dist:ro" \
+            --env OMP_NUM_THREADS=2 --env OMP_DYNAMIC=FALSE \
             --workdir /tmp \
             python:3.11-slim-bookworm \
             sh -c 'set -eu
@@ -232,13 +218,23 @@ jobs:
                   exit 1
                   ;;
               esac
-              python -c "import numpy as np, pyhuge, pyhuge._native_core; pyhuge.test(require_runtime=True); stock = pyhuge.huge_stockdata(); fit = pyhuge.huge(np.random.default_rng(1).normal(size=(30, 4)), method=\"mb\", nlambda=2, verbose=False); assert stock.data.shape == (1258, 452); assert len(fit.path) == 2"
+              test "$(printf "%s\n" "${dependencies}" | grep -ic libgomp)" -eq 1
+              openmp="$(printf "%s\n" "${dependencies}" | grep -i libgomp | xargs | cut -d " " -f 3)"
+              test -n "${openmp}"
+              case "$(readlink -f "${openmp}")" in
+                */site-packages/pyhuge.libs/*) ;;
+                *)
+                  echo "OpenMP did not resolve to the repaired wheel library" >&2
+                  exit 1
+                  ;;
+              esac
+              python -c "import numpy as np, pyhuge, pyhuge._native_core as native; assert native.omp_max_threads() == 2; pyhuge.test(require_runtime=True); stock = pyhuge.huge_stockdata(); fit = pyhuge.huge(np.random.default_rng(1).normal(size=(30, 4)), method=\"mb\", nlambda=2, verbose=False); assert stock.data.shape == (1258, 452); assert len(fit.path) == 2"
             '
 
   publish:
     runs-on: ubuntu-latest
     needs: [sdist, wheel-smoke]
-    if: startsWith(github.ref, 'refs/tags/pyhuge-v')
+    if: ${{ false && startsWith(github.ref, 'refs/tags/pyhuge-v') }}
     permissions:
       id-token: write
     environment:
@@ -260,3 +256,291 @@ jobs:
         with:
           packages-dir: dist
           skip-existing: true
+
+  validation-r-core-mirrors:
+    name: Shared C++ core mirror check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shared C++ core copies are in sync
+        run: tools/check_core_mirrors.sh
+      - name: Verify the mirror checker itself fails when it should
+        run: tools/check_core_mirrors_probes.sh
+
+  validation-r-core-sanitizers:
+    name: Native ASan/UBSan (OpenMP ${{ matrix.openmp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        openmp: ['ON', 'OFF']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install BLAS
+        run: sudo apt-get update -y && sudo apt-get install -y libopenblas-dev
+      - name: Check native memory safety and numerical contracts
+        env:
+          HUGE_NATIVE_OPENMP: ${{ matrix.openmp }}
+          HUGE_NATIVE_EXPECT_OPENMP: ${{ matrix.openmp }}
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '4'
+        run: sh tools/check_native_sanitizers.sh
+
+  validation-r-core-cmake:
+    name: Standalone core install (${{ matrix.os }}, OpenMP ${{ matrix.openmp }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            openmp: 'ON'
+            expect_openmp: 'ON'
+            blas_vendor: ''
+          - os: ubuntu-latest
+            openmp: 'OFF'
+            expect_openmp: 'OFF'
+            blas_vendor: ''
+          - os: macos-latest
+            openmp: 'OFF'
+            expect_openmp: 'OFF'
+            blas_vendor: 'Apple'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install BLAS
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libopenblas-dev
+      - name: Build, install, and consume static and shared libraries
+        env:
+          HUGE_CMAKE_SMOKE_OPENMP: ${{ matrix.openmp }}
+          HUGE_CMAKE_SMOKE_EXPECT_OPENMP: ${{ matrix.expect_openmp }}
+          HUGE_CMAKE_SMOKE_BLA_VENDOR: ${{ matrix.blas_vendor }}
+        run: tools/check_cmake_install.sh
+
+  validation-r-check:
+    name: R CMD check (${{ matrix.os }}, R ${{ matrix.r }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        r: ['release']
+        include:
+          # Also test R-devel on Linux to catch upcoming breakage early
+          - os: ubuntu-latest
+            r: devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libopenblas-dev
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.r }}
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          build_args: 'c("--no-manual", "--no-build-vignettes")'
+          args: 'c("--no-manual", "--no-build-vignettes", "--no-vignettes")'
+          error-on: '"error"'
+          upload-snapshots: true
+          upload-results: true
+          artifact-name: validation-r-${{ matrix.os }}-${{ matrix.r }}-results
+          snapshot-artifact-name: validation-r-${{ matrix.os }}-${{ matrix.r }}-snapshots
+
+  validation-r-strict-source:
+    name: Clean source package with vignettes and PDF manual
+    runs-on: ubuntu-latest
+    env:
+      _R_CHECK_CRAN_INCOMING_: "true"
+      _R_CHECK_FORCE_SUGGESTS_: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+      - name: Install complete CRAN documentation and validation tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libopenblas-dev devscripts pandoc ghostscript tidy libnode-dev
+      - name: Record real system documentation tool versions
+        run: |
+          checkbashisms --version
+          pandoc --version
+          gs --version
+          tidy --version
+      - uses: r-lib/actions/setup-tinytex@v2
+      - name: Install vignette and PDF manual LaTeX dependencies
+        run: |
+          tlmgr update --self
+          tlmgr install pdfpages times helvetic courier inconsolata
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::rcmdcheck
+            any::V8
+          needs: check
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          build_args: 'character()'
+          args: 'c("--as-cran")'
+          error-on: '"warning"'
+          upload-snapshots: true
+          upload-results: true
+          artifact-name: validation-r-strict-as-cran-results
+          snapshot-artifact-name: validation-r-strict-as-cran-snapshots
+
+  validation-wrapper-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: r-lib/actions/setup-r@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev
+      - name: Install R package dependencies
+        env:
+          R_LIBS_USER: ${{ github.workspace }}/.Rlib
+        run: |
+          mkdir -p "${R_LIBS_USER}"
+          R -q -e 'install.packages(c("Rcpp", "igraph", "Matrix", "MASS"), repos="https://cloud.r-project.org")'
+      - name: Install local huge package into isolated R library
+        env:
+          R_LIBS_USER: ${{ github.workspace }}/.Rlib
+        run: |
+          mkdir -p "${R_LIBS_USER}"
+          R CMD INSTALL "${GITHUB_WORKSPACE}"
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest numpy scipy rpy2 matplotlib networkx pybind11
+          pip install -e "./python-package[test,viz,runtime]"
+      - name: Run optional e2e tests (must execute, not skip)
+        env:
+          R_LIBS_USER: ${{ github.workspace }}/.Rlib
+          PYTHONPATH: ${{ github.workspace }}/python-package
+        run: |
+          cd python-package
+          out="$(pytest -q tests/test_e2e_optional.py -rA)"
+          echo "$out"
+          passed_count="$(printf '%s\n' "$out" | awk '/^PASSED tests\/test_e2e_optional.py::/{n++} END{print n+0}')"
+          test "$passed_count" -eq 6
+
+  validation-binding-sanitizers:
+    name: Independent Linux Python binding and core sanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+      - name: Install Clang runtime and system BLAS
+        run: sudo apt-get update -y && sudo apt-get install -y clang libclang-rt-dev libopenblas-dev
+      - name: Install actual package and sanitizer test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "setuptools>=77" wheel "pybind11>=2.12" numpy scipy pytest
+          python -m pip install "./python-package[test,viz,runtime]"
+      - name: Instrument and check real binding ownership and core
+        env:
+          CC: clang
+          CXX: clang++
+          PYTHON: python
+          HUGE_PYTHON_SANITIZER_OUTPUT: ${{ runner.temp }}/independent-linux-binding-sanitizers
+        run: sh tools/check_python_binding_sanitizers.sh
+      - name: Retain all instrumented diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-linux-binding-sanitizers
+          path: ${{ runner.temp }}/independent-linux-binding-sanitizers
+
+  validation-linux-performance:
+    name: Actual Linux OpenBLAS and OpenMP workflow comparisons
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install LP64 OpenBLAS and GNU native toolchain
+        run: sudo apt-get update -y && sudo apt-get install -y libopenblas-dev gcc g++
+      - name: Install exact comparison build and runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==2.5.3 scipy==1.18.1 pybind11==3.1.0 setuptools==84.0.0 wheel==0.48.0
+      - name: Compare pinned upstream and current public workflows on real Linux
+        run: python tools/remote-performance/remote-performance.py
+      - name: Retain all performance inputs, identity checks, failures, and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-linux-performance-audit
+          path: ${{ runner.temp }}/huge-performance-audit/results
+
+  validation-r-reverse-dependencies:
+    name: Paired CRAN direct reverse dependency checks
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 100
+    env:
+      MAKEFLAGS: "-j1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      BLIS_NUM_THREADS: "1"
+      REVDEP_OUTPUT: ${{ runner.temp }}/huge-paired-reverse-dependencies
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: false
+      - name: Install R compilation system libraries
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends libopenblas-dev libcurl4-openssl-dev libssl-dev libxml2-dev libgit2-dev libicu-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libpng-dev libtiff-dev libjpeg-dev
+      - name: Check synthetic audit controls
+        run: python -I .github/validation/remote-revdeps/reverse-dependencies.py selftest
+      - name: Check current direct reverse packages against both huge versions
+        run: |
+          python -I .github/validation/remote-revdeps/reverse-dependencies.py run \
+            --source "${GITHUB_WORKSPACE}" --output "${REVDEP_OUTPUT}" \
+            --total-minutes 90 --max-dependencies 350
+      - name: Preserve every baseline, candidate, failure and timeout
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-r-paired-reverse-dependencies
+          path: ${{ env.REVDEP_OUTPUT }}/evidence/
+          if-no-files-found: error
+          retention-days: 14

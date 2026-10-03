@@ -1,0 +1,451 @@
+"""Bounded real Linux CRAN reverse checks; selftest does no R/network/model work."""
+import argparse
+import csv
+from datetime import datetime, timezone
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+import urllib.error
+import urllib.request
+
+CRAN = "https://cran.r-project.org"
+PRIORITY = ["heterocop", "NetGreg", "netgwas", "nutriNetwork", "SparseTSCGM"]
+HERE = Path(__file__).resolve().parent
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def write(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2) + "\n")
+
+
+def dcf(text):
+    records, current, field = [], {}, None
+    for line in text.splitlines() + [""]:
+        if not line.strip():
+            if current:
+                records.append(current)
+            current, field = {}, None
+        elif line[0].isspace():
+            if field is None:
+                raise ValueError("DCF continuation without a field")
+            current[field] += " " + line.strip()
+        else:
+            field, value = line.split(":", 1)
+            current[field] = value.strip()
+    return records
+
+
+def dependencies(value):
+    return [re.match(r"([A-Za-z][A-Za-z0-9.]*)", x.strip()).group(1)
+            for x in value.split(",") if x.strip()]
+
+
+def discover(records):
+    relations = {key: sorted(r["Package"] for r in records
+                            if "huge" in dependencies(r.get(key, "")))
+                 for key in ("Imports", "Suggests", "Depends", "LinkingTo")}
+    names = set().union(*relations.values()) - {"huge"}
+    ordered = [x for x in PRIORITY if x in names] + sorted(names - set(PRIORITY))
+    return relations, ordered
+
+
+def tar_description(path):
+    with tarfile.open(path) as opened:
+        entries = [m for m in opened.getmembers()
+                   if len(Path(m.name).parts) == 2 and Path(m.name).name == "DESCRIPTION"]
+        if len(entries) != 1 or entries[0].size > 1048576:
+            raise ValueError("Source archive has no unique top-level DESCRIPTION")
+        return dcf(opened.extractfile(entries[0]).read().decode())[0]
+
+
+def parse_check(log, roots=()):
+    text = Path(log).read_text(errors="replace")
+    statuses = re.findall(r"^Status:\s*(.*)$", text, flags=re.M)
+    if not statuses:
+        raise ValueError("Missing actual R CMD check Status")
+    status = statuses[-1].strip()
+    counts = {x: 0 for x in ("ERROR", "WARNING", "NOTE")}
+    for n, kind in re.findall(r"(\d+)\s+(ERROR|WARNING|NOTE)s?", status, re.I):
+        counts[kind.upper()] = int(n)
+    if status != "OK" and not any(counts.values()):
+        raise ValueError("Unrecognized check status: " + status)
+    blocks = {}
+    for block in re.split(r"(?=^\* checking )", text, flags=re.M):
+        if not block.startswith("* checking "):
+            continue
+        block = re.split(r"^\* DONE", block, maxsplit=1, flags=re.M)[0]
+        header = block.splitlines()[0].split(" ...", 1)[0]
+        first_line = block.splitlines()[0]
+        # Multiline check results (especially tests) put the result on a
+        # following line. Match a result line, never a quoted diagnostic word.
+        result_text = first_line.split(" ...", 1)[1] if " ..." in first_line else ""
+        if not result_text.strip():
+            result_text = next((line.strip() for line in block.splitlines()[1:]
+                                if re.fullmatch(r"\s*(?:OK|ERROR|WARNING|NOTE|SKIPPED)\s*", line)), "")
+        severity = next((kind for kind in ("ERROR", "WARNING", "NOTE", "SKIPPED")
+                         if re.search(r"\b" + kind + r"\b", result_text)), "OK")
+        normalized = block
+        for root in sorted(map(str, roots), key=len, reverse=True):
+            normalized = normalized.replace(root, "<audit-path>")
+        blocks[header] = {"severity": severity, "normalized_diagnostic": normalized.strip()}
+    return {"status": status, "counts": counts, "blocks": blocks, "log_sha256": sha(log)}
+
+
+def compare(baseline, candidate):
+    changed = []
+    for kind in ("ERROR", "WARNING"):
+        if candidate["counts"][kind] > baseline["counts"][kind]:
+            changed.append("increased_" + kind)
+    for name, block in candidate["blocks"].items():
+        if block["severity"] in ("ERROR", "WARNING") and block != baseline["blocks"].get(name):
+            changed.append(name)
+    # Tests/examples may regress to missing or skipped even without a top-level error.
+    for name, block in baseline["blocks"].items():
+        if re.match(r"\* checking (tests|examples)$", name) and block["severity"] == "OK":
+            other = candidate["blocks"].get(name)
+            if other is None or other["severity"] != "OK" or re.search(r"\bSKIPPED\b", other["normalized_diagnostic"]):
+                changed.append("tests_or_examples_not_completed:" + name)
+    return {"no_candidate_regression": not changed, "new_or_changed_candidate_issues": changed,
+            "baseline_existing_issues": {k: v for k, v in baseline["blocks"].items() if v["severity"] in ("ERROR", "WARNING", "NOTE")},
+            "both_clean": baseline["status"] == candidate["status"] == "OK"}
+
+
+class Audit:
+    def __init__(self, output, seconds):
+        self.output, self.deadline = output, time.monotonic() + seconds
+        self.evidence = output / "evidence"
+        self.work = output / "work"
+        self.evidence.mkdir(parents=True)
+        self.work.mkdir()
+        self.env = os.environ.copy()
+        self.env.update(MAKEFLAGS="-j1", OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
+                        MKL_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1", BLIS_NUM_THREADS="1",
+                        NUMEXPR_NUM_THREADS="1", NOT_CRAN="true", _R_CHECK_FORCE_SUGGESTS_="true",
+                        R_ENVIRON_USER="/dev/null", R_PROFILE_USER="/dev/null",
+                        R_LIBS="", R_LIBS_SITE=str(self.work / "absent-site-library"))
+
+    def remaining(self):
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("Overall audit deadline reached")
+        return left
+
+    def command(self, args, stem, cwd=None, env=None, timeout=1200, allow_nonzero=False):
+        limit = min(timeout, self.remaining())
+        log = self.evidence / (stem + ".log")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        row = {"command": args, "cwd": str(cwd or self.work), "timeout_seconds": limit,
+               "started_utc": datetime.now(timezone.utc).isoformat(), "timed_out": False}
+        with log.open("w") as stream:
+            process = subprocess.Popen(args, cwd=cwd or self.work, env=env or self.env,
+                                       stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+            row["owned_process_group"] = process.pid
+            try:
+                row["returncode"] = process.wait(timeout=limit)
+            except subprocess.TimeoutExpired:
+                row["timed_out"] = True
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                # Kill the owned group even if its leader exited first.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                row["returncode"] = process.wait(timeout=5)
+        row.update(ended_utc=datetime.now(timezone.utc).isoformat(), log_sha256=sha(log))
+        write(self.evidence / (stem + ".command.json"), row)
+        if not allow_nonzero and (row["timed_out"] or row["returncode"]):
+            raise RuntimeError("Command failed or timed out: " + stem)
+        return row
+
+    def download(self, urls, path):
+        attempts = []
+        for url in urls:
+            try:
+                with urllib.request.urlopen(url, timeout=min(60, self.remaining())) as response:
+                    data = response.read(100 * 1048576 + 1)
+                    if len(data) > 100 * 1048576:
+                        raise ValueError("Source download exceeds 100MiB cap")
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                    row = {"url": url, "response_url": response.url, "headers": dict(response.headers),
+                           "sha256": sha(path), "bytes": len(data), "attempts": attempts,
+                           "utc": datetime.now(timezone.utc).isoformat()}
+                    write(path.with_suffix(path.suffix + ".download.json"), row)
+                    return row
+            except urllib.error.HTTPError as exc:
+                attempts.append({"url": url, "status": exc.code})
+                if exc.code != 404:
+                    raise
+        raise RuntimeError("No pinned official source available: " + str(path))
+
+
+def inventory(lib):
+    return {str(p.relative_to(lib)): sha(p) for p in sorted(lib.rglob("*"))
+            if p.is_file() and (p.name == "DESCRIPTION" or p.suffix in (".so", ".dll"))}
+
+
+def run(args):
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("Actual reverse audit requires Linux; use selftest locally")
+    out = Path(args.output).resolve()
+    out.mkdir(exist_ok=False)
+    audit = Audit(out, args.total_minutes * 60)
+    result = {"completed": False, "no_candidate_regressions": False, "packages": [],
+              "scope": "Actual current CRAN direct reverse dependencies, paired full tests/examples, no manuals/vignettes",
+              "baseline_version": "2.0.1", "candidate_version": "2.0.2",
+              "as_cran": False, "NOT_CRAN": "true", "dependency_epochs": []}
+    try:
+        tools_lib = audit.work / "tool-library"
+        tools_lib.mkdir()
+        audit.env["R_LIBS_USER"] = str(tools_lib)
+        bootstrap = ('args<-commandArgs(TRUE); '
+                     'install.packages("pak",lib=args[1],repos="https://cran.r-project.org",dependencies=NA); '
+                     'stopifnot(normalizePath(find.package("pak",lib.loc=args[1]))==normalizePath(file.path(args[1],"pak"))); '
+                     'write.csv(installed.packages(lib.loc=args[1])[,c("Package","Version","LibPath"),drop=FALSE],args[2],row.names=FALSE); '
+                     'print(sessionInfo())')
+        audit.command(["Rscript", "--vanilla", "-e", bootstrap, str(tools_lib), str(audit.evidence / "tool-inventory.csv")],
+                      "bootstrap-pak", timeout=1200)
+        write(audit.evidence / "tool-library-pins.json", inventory(tools_lib))
+        index = audit.evidence / "downloads" / "PACKAGES.gz"
+        audit.download([CRAN + "/src/contrib/PACKAGES.gz"], index)
+        records = dcf(gzip.decompress(index.read_bytes()).decode())
+        by_name = {r["Package"]: r for r in records}
+        relations, names = discover(records)
+        if not names:
+            raise RuntimeError("CRAN index produced no reverse dependencies")
+        result.update(index_sha256=sha(index), relations=relations, priority_order=names,
+                      actual_reverse_count=len(names), dependency_cap=args.max_dependencies)
+        write(audit.evidence / "discovered.json", result)
+        targets = {}
+        for name in names + ["huge"]:
+            version = "2.0.1" if name == "huge" else by_name[name]["Version"]
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9.]*", name) or not re.fullmatch(r"[0-9][A-Za-z0-9.+_-]*", version):
+                raise ValueError("Unsafe package/version")
+            path = audit.evidence / "downloads" / f"{name}_{version}.tar.gz"
+            urls = [CRAN + f"/src/contrib/{path.name}", CRAN + f"/src/contrib/Archive/{name}/{path.name}"]
+            if name == "huge" and by_name.get("huge", {}).get("Version") != version:
+                urls = urls[1:]
+            audit.download(urls, path)
+            description = tar_description(path)
+            if description["Package"] != name or description["Version"] != version:
+                raise ValueError("Downloaded DESCRIPTION mismatch")
+            targets[name] = {"version": version, "path": str(path), "sha256": sha(path),
+                             "description": description}
+        write(audit.evidence / "target-sources.json", targets)
+        source = Path(args.source).resolve()
+        desc = dcf((source / "DESCRIPTION").read_text())[0]
+        if (desc["Package"], desc["Version"]) != ("huge", "2.0.2"):
+            raise ValueError("Candidate must be current huge2.0.2 source")
+        current = audit.work / "source-current"
+        current.mkdir()
+        for path in source.iterdir():
+            if path.is_dir() and path.name in ("R", "src", "man", "data", "inst", "vignettes", "tests"):
+                shutil.copytree(path, current / path.name,
+                                ignore=shutil.ignore_patterns("*.o", "*.so", "*.dll", "*.dylib", "__pycache__"))
+            elif path.is_file() and (path.name in ("DESCRIPTION", "NAMESPACE", ".Rbuildignore", "NEWS.md", "configure", "configure.ac", "cleanup", "aclocal.m4", "config.guess", "config.sub", "install-sh") or path.name.startswith("LICENSE")):
+                shutil.copy2(path, current / path.name)
+        write(audit.evidence / "candidate-source-pins.json", {str(p.relative_to(current)): sha(p) for p in current.rglob("*") if p.is_file()})
+        shared = audit.work / "shared-library"
+        shared.mkdir()
+        libs = {arm: audit.work / (arm + "-library") for arm in ("baseline", "candidate")}
+        for lib in libs.values():
+            lib.mkdir()
+        core_names = sorted(set().union(*(set(dependencies(d.get(k, ""))) for d in
+            (desc, tar_description(Path(targets["huge"]["path"]))) for k in ("Depends", "Imports", "LinkingTo"))) - {"R", "huge"})
+        core_refs = audit.evidence / "core-refs.txt"
+        core_refs.write_text("\n".join(core_names) + "\n")
+        helper = str(HERE / "dependencies.R")
+        audit.command(["Rscript", "--vanilla", helper, "core", str(shared), "", str(core_refs),
+                       str(audit.evidence / "core-inventory.csv")], "install-core-dependencies", timeout=1800)
+        build_env = audit.env.copy()
+        build_env["R_LIBS_USER"] = str(shared)
+        audit.command(["R", "CMD", "build", "--no-build-vignettes", str(current)], "build-current", env=build_env, timeout=1200)
+        candidate_tar = audit.work / "huge_2.0.2.tar.gz"
+        shutil.copy2(candidate_tar, audit.evidence / candidate_tar.name)
+        huge_tars = {"baseline": Path(targets["huge"]["path"]), "candidate": candidate_tar}
+        for arm, lib in libs.items():
+            env = audit.env.copy()
+            env["R_LIBS_USER"] = os.pathsep.join(map(str, (lib, shared)))
+            audit.command(["R", "CMD", "INSTALL", "--library=" + str(lib), str(huge_tars[arm])],
+                          "install-huge-" + arm, env=env)
+        guards = {}
+        preflight = audit.work / "preflight.R"
+        preflight.write_text('args <- commandArgs(TRUE)\nlibrary(huge)\np <- normalizePath(find.package("huge"))\nstopifnot(p == normalizePath(file.path(args[1], "huge")), as.character(packageVersion("huge")) == args[2])\nd <- getLoadedDLLs()[["huge"]]\nstopifnot(!d[["dynamicLookup"]], startsWith(normalizePath(d[["path"]]), paste0(p, "/libs/")))\nwriteLines(c(p, as.character(packageVersion("huge")), normalizePath(d[["path"]])), args[3])\n')
+        for arm, lib in libs.items():
+            env = audit.env.copy()
+            env["R_LIBS_USER"] = os.pathsep.join(map(str, (lib, shared)))
+            version = "2.0.1" if arm == "baseline" else "2.0.2"
+            guard_file = audit.evidence / ("huge-" + arm + "-guard.txt")
+            audit.command(["Rscript", "--vanilla", str(preflight), str(lib), version, str(guard_file)], "preflight-" + arm, env=env)
+            fields = guard_file.read_text().splitlines()
+            binary = Path(fields[2])
+            guards[arm] = {"package_path": fields[0], "version": fields[1], "DLL": fields[2], "DLL_sha256": sha(binary),
+                           "source_tar_sha256": sha(huge_tars[arm]), "library_pins": inventory(lib)}
+            retain = audit.evidence / "binaries" / arm / binary.name
+            retain.parent.mkdir(parents=True)
+            shutil.copy2(binary, retain)
+        write(audit.evidence / "huge-guards.json", guards)
+        groups = [("priority-imports", [name for name in names if name in PRIORITY]),
+                  ("remaining-reverse", [name for name in names if name not in PRIORITY])]
+        accumulated = set(core_names)
+        known_dependencies = inventory(shared)
+        group_index = 0
+        for i, name in enumerate(names):
+            while group_index < len(groups) and not groups[group_index][1]:
+                group_index += 1
+            epoch, group_names = groups[group_index]
+            if name == group_names[0]:
+                for target in group_names:
+                    for key in ("Depends", "Imports", "LinkingTo", "Suggests"):
+                        accumulated.update(dependencies(targets[target]["description"].get(key, "")))
+                accumulated -= {"huge", "R"}
+                refs = audit.evidence / (epoch + "-roots.txt")
+                refs.write_text("\n".join(sorted(accumulated)) + "\n")
+                plan_rds = audit.evidence / (epoch + "-dependency-plan.rds")
+                plan_csv = audit.evidence / (epoch + "-dependency-plan.csv")
+                audit.command(["Rscript", "--vanilla", helper, "plan", str(shared), str(libs["baseline"]),
+                               str(refs), str(plan_rds), str(plan_csv), str(audit.evidence / (epoch + "-pre-inventory.csv"))],
+                              "plan-" + epoch, timeout=600)
+                plan = list(csv.DictReader(plan_csv.open()))
+                closure = {row["package"] for row in plan if row["package"] not in ("huge", "R") and row.get("priority") != "base"}
+                size = {"epoch": epoch, "actual_unique_dependency_closure": len(closure), "cap": args.max_dependencies,
+                        "direct_roots": sorted(accumulated), "recursive_types": ["Depends", "Imports", "LinkingTo"],
+                        "target_direct_Suggests_included": group_names}
+                write(audit.evidence / (epoch + "-dependency-size.json"), size)
+                if len(closure) > args.max_dependencies:
+                    raise RuntimeError("Dependency closure exceeds explicit cap; nothing trimmed")
+                for target in names:
+                    versions = {row["version"] for row in plan if row["package"] == target}
+                    if versions and versions != {targets[target]["version"]}:
+                        raise RuntimeError("pak target version differs from frozen CRAN index")
+                audit.command(["Rscript", "--vanilla", helper, "install", str(shared), str(libs["baseline"]),
+                               str(plan_rds), str(audit.evidence / (epoch + "-inventory.csv"))],
+                              "install-" + epoch, timeout=2400)
+                if (shared / "huge").exists():
+                    raise RuntimeError("Shared library must not contain huge")
+                dep_hashes = inventory(shared)
+                if any(dep_hashes.get(key) != value for key, value in known_dependencies.items()):
+                    raise RuntimeError("Later dependency preparation changed earlier dependency versions/native identities")
+                if any(inventory(libs[arm]) != guards[arm]["library_pins"] for arm in libs):
+                    raise RuntimeError("Dependency preparation changed an isolated huge installation")
+                known_dependencies = dep_hashes
+                write(audit.evidence / (epoch + "-shared-library-pins.json"), dep_hashes)
+                result["dependency_epochs"].append({**size, "installed_identity_scope": "DESCRIPTION versions/hash and native .so/.dll hashes; not all dependency source bytes",
+                                                     "pins_sha256": sha(audit.evidence / (epoch + "-shared-library-pins.json"))})
+                write(audit.evidence / "results.json", result)
+            item = {"package": name, "version": targets[name]["version"], "source_sha256": targets[name]["sha256"], "arms": {}}
+            item["dependency_epoch"] = epoch
+            result["packages"].append(item)
+            for arm in (("baseline", "candidate") if i % 2 == 0 else ("candidate", "baseline")):
+                directory = audit.evidence / "checks" / name / arm
+                directory.mkdir(parents=True)
+                env = audit.env.copy()
+                env["R_LIBS_USER"] = os.pathsep.join(map(str, (libs[arm], shared)))
+                row = audit.command(["R", "CMD", "check", "--no-manual", "--no-build-vignettes", "--no-vignettes", targets[name]["path"]],
+                    "checks/" + name + "/" + arm + "-process", cwd=directory, env=env, timeout=1200, allow_nonzero=True)
+                log = directory / (name + ".Rcheck") / "00check.log"
+                row["check"] = None
+                if not row["timed_out"] and row["returncode"] in (0, 1):
+                    try:
+                        row["check"] = parse_check(log, (audit.work, libs[arm], directory))
+                    except (OSError, ValueError) as exc:
+                        row["check_parse_failure"] = str(exc)
+                item["arms"][arm] = row
+                if inventory(shared) != dep_hashes or inventory(libs[arm]) != guards[arm]["library_pins"]:
+                    raise RuntimeError("A check changed shared dependencies or huge installation")
+                write(audit.evidence / "results.json", result)
+            if all(v["check"] is not None for v in item["arms"].values()):
+                item["comparison"] = compare(item["arms"]["baseline"]["check"], item["arms"]["candidate"]["check"])
+            else:
+                item["comparison"] = {"no_candidate_regression": False, "both_clean": False,
+                                       "unavailable": "An arm timed out, crashed or lacked an actual check Status"}
+            write(audit.evidence / "results.json", result)
+            if name == group_names[-1]:
+                group_index += 1
+        result.update(completed=all(p["arms"][a]["check"] is not None for p in result["packages"] for a in ("baseline", "candidate")),
+                      no_candidate_regressions=all(p["comparison"]["no_candidate_regression"] for p in result["packages"]),
+                      all_pairs_clean=all(p["comparison"]["both_clean"] for p in result["packages"]))
+    except Exception as exc:
+        result["setup_or_execution_failure"] = {"type": type(exc).__name__, "message": str(exc)}
+    finally:
+        done = {p["package"] for p in result["packages"]}
+        for name in result.get("priority_order", []):
+            if name not in done:
+                result["packages"].append({"package": name, "arms": {}, "not_run_reason": "Setup/deadline interruption; see setup_or_execution_failure"})
+        result["pairs_with_actual_status"] = sum(len(p["arms"]) == 2 and all(a.get("check") is not None for a in p["arms"].values()) for p in result["packages"])
+        result["packages_not_run"] = sum(not p["arms"] for p in result["packages"])
+        result["packages_incomplete"] = len(result["packages"]) - result["pairs_with_actual_status"]
+        write(audit.evidence / "results.json", result)
+    print(json.dumps({k: result.get(k) for k in ("completed", "actual_reverse_count", "no_candidate_regressions", "all_pairs_clean", "setup_or_execution_failure")}))
+    return 0 if result["completed"] and result["no_candidate_regressions"] else 1
+
+
+def selftest(args):
+    import tempfile
+    rows = dcf("Package: first\nVersion: 1.0\nImports: stats,\n huge (>= 2.0.1)\nSuggests: utils\n\nPackage: second\nVersion: 1.0\nSuggests: huge\n")
+    relations, names = discover(rows)
+    assert relations["Imports"] == ["first"] and relations["Suggests"] == ["second"] and names == ["first", "second"]
+    with tempfile.TemporaryDirectory() as name:
+        p = Path(name) / "00check.log"
+        p.write_text("* checking examples ... OK\n* checking tests ... OK\n* DONE\nStatus: OK\n")
+        good = parse_check(p)
+        assert good["counts"] == {"ERROR": 0, "WARNING": 0, "NOTE": 0}
+        p.write_text("* checking examples ... ERROR\nchanged expectation\n* checking tests ... OK\n* DONE\nStatus: 1 ERROR\n")
+        bad = parse_check(p)
+        assert not compare(good, bad)["no_candidate_regression"]
+        assert compare(bad, bad)["no_candidate_regression"] and not compare(bad, bad)["both_clean"]
+        p.write_text("* checking examples ... ERROR\ndifferent failure\n* checking tests ... OK\n* DONE\nStatus: 1 ERROR\n")
+        assert not compare(bad, parse_check(p))["no_candidate_regression"]
+        p.write_text("* checking examples ... WARNING\nnew warning\n* checking tests ...\n Running 'testthat.R'\n OK\n* DONE\nStatus: 1 WARNING\n")
+        warn = parse_check(p)
+        assert warn["blocks"]["* checking tests"]["severity"] == "OK"
+        assert not compare(good, warn)["no_candidate_regression"]
+        p.write_text("* checking examples ... OK\n* checking tests ... SKIPPED\n* DONE\nStatus: OK\n")
+        assert not compare(good, parse_check(p))["no_candidate_regression"]
+        p.write_text("* checking examples ... OK\n* DONE\nStatus: OK\n")
+        assert not compare(good, parse_check(p))["no_candidate_regression"]
+        p.write_text("* checking examples ... OK\n* checking tests ...\n Running 'testthat.R'\n ERROR\nfailed checks\n* DONE\nStatus: 1 ERROR, 1 NOTE\n")
+        multiline = parse_check(p)
+        assert multiline["blocks"]["* checking tests"]["severity"] == "ERROR"
+        assert multiline["counts"] == {"ERROR": 1, "WARNING": 0, "NOTE": 1}
+    print(json.dumps({"passed": True, "scope": "synthetic DCF/check-status/parser gates only; no network/R/model/build", "controls": 9}))
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="command", required=True)
+    q = sub.add_parser("run")
+    q.add_argument("--source", required=True)
+    q.add_argument("--output", required=True)
+    q.add_argument("--total-minutes", type=int, default=90)
+    q.add_argument("--max-dependencies", type=int, default=350)
+    sub.add_parser("selftest")
+    args = p.parse_args()
+    if args.command == "run" and not (1 <= args.total_minutes <= 90 and 1 <= args.max_dependencies <= 350):
+        p.error("Audit caps must be positive and at most 90 minutes / 350 dependencies")
+    return run(args) if args.command == "run" else selftest(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

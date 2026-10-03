@@ -191,18 +191,24 @@
     dimnames(correlation) = dimnames(covariance)
     if(d > 1) {
       for(column in 2:d) {
-        for(row in seq_len(column - 1L)) {
-          inv.large = max(inv.sd[[row]], inv.sd[[column]])
-          inv.small = min(inv.sd[[row]], inv.sd[[column]])
-          value = (covariance[[row, column]] * inv.large) * inv.small
+        # Vectorize within a column to keep temporary storage linear in d.
+        # The larger inverse scale must still be applied first so weak
+        # correlations survive extreme differences in marginal variances.
+        rows = seq_len(column - 1L)
+        inv.large = pmax(inv.sd[rows], inv.sd[[column]])
+        inv.small = pmin(inv.sd[rows], inv.sd[[column]])
+        values = (covariance[rows, column] * inv.large) * inv.small
+        invalid = !is.finite(values) | abs(values) > 1 + 1e-8
+        if(any(invalid)) {
+          # Keep the scalar traversal's first-error diagnostic.
+          value = values[[which(invalid)[[1L]]]]
           if(!is.finite(value))
             stop("Covariance input cannot produce a finite correlation matrix.")
-          if(abs(value) > 1 + 1e-8)
-            stop("Covariance input is not a valid covariance matrix.")
-          value = max(-1, min(1, value))
-          correlation[[row, column]] = value
-          correlation[[column, row]] = value
+          stop("Covariance input is not a valid covariance matrix.")
         }
+        values = pmax(-1, pmin(1, values))
+        correlation[rows, column] = values
+        correlation[column, rows] = values
       }
     }
     if(require.psd)

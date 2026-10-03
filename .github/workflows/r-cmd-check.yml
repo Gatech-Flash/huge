@@ -51,6 +51,25 @@ jobs:
       - name: Verify the mirror checker itself fails when it should
         run: tools/check_core_mirrors_probes.sh
 
+  core-sanitizers:
+    name: Native ASan/UBSan (OpenMP ${{ matrix.openmp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        openmp: ['ON', 'OFF']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install BLAS
+        run: sudo apt-get update -y && sudo apt-get install -y libopenblas-dev
+      - name: Check native memory safety and numerical contracts
+        env:
+          HUGE_NATIVE_OPENMP: ${{ matrix.openmp }}
+          HUGE_NATIVE_EXPECT_OPENMP: ${{ matrix.openmp }}
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '4'
+        run: sh tools/check_native_sanitizers.sh
+
   core-cmake:
     name: Standalone core install (${{ matrix.os }}, OpenMP ${{ matrix.openmp }})
     runs-on: ${{ matrix.os }}
@@ -124,7 +143,7 @@ jobs:
           upload-snapshots: true
 
   strict-source:
-    name: Clean source package with vignettes
+    name: Clean source package with vignettes and PDF manual
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -133,17 +152,17 @@ jobs:
           r-version: release
           use-public-rspm: true
       - uses: r-lib/actions/setup-tinytex@v2
-      - name: Install vignette LaTeX dependency
+      - name: Install vignette and PDF manual LaTeX dependencies
         run: |
           tlmgr update --self
-          tlmgr install pdfpages
+          tlmgr install pdfpages times helvetic courier inconsolata
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           extra-packages: any::rcmdcheck
           needs: check
       - uses: r-lib/actions/check-r-package@v2
         with:
-          build_args: 'c("--no-manual")'
-          args: 'c("--no-manual")'
+          build_args: 'character()'
+          args: 'character()'
           error-on: '"warning"'
           upload-snapshots: true

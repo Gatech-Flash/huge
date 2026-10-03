@@ -2,7 +2,7 @@
 
 AC_PREREQ(2.62)
 
-AC_INIT([huge],2.0.1)
+AC_INIT([huge],2.0.2)
 AC_PATH_PROG([RBIN], [R])
 
 OPENMP_CXXFLAGS=""

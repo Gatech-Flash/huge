@@ -7,9 +7,9 @@
 huge.roc(path, theta, verbose = TRUE)
 }
 \arguments{
-\item{path}{A graph path.}
+\item{path}{A nonempty list of graph matrices of the same dimensions as \code{theta}. Dense matrices, numeric data frames, and sparse \code{Matrix} objects are accepted.}
 
-\item{theta}{The true graph structure, containing at least one edge and one absent off-diagonal edge.}
+\item{theta}{The square true graph structure, containing at least one edge and one absent off-diagonal edge. All entries must be finite.}
 
 \item{verbose}{If \code{verbose = FALSE}, tracing information printing is disabled. The default value is \code{TRUE}.}
 }
@@ -33,6 +33,8 @@ Draws ROC curve for a graph path according to the true graph structure.
 }
 \details{
 To avoid the horizontal oscillation, false positive rates is automatically sorted in the ascent order and true positive rates also follow the same order.
+
+Nonzero entries indicate edges, after summing any duplicate sparse entries. All off-diagonal positions are counted, including both directions for asymmetric inputs. Diagonal entries are ignored after checking that all entries are finite. Sparse inputs are processed without conversion to dense matrices. Returned scores retain the input path order; sorting is used only for plotting and AUC integration.
 }
 \note{
 ROC/AUC is undefined when \code{theta} contains only edges or only non-edges, so those one-class truth matrices are rejected. For a lasso regression, the number of nonzero coefficients is at most \code{n-1}. If \code{d>>n}, even when regularization parameter is very small, the estimated graph may still be sparse. In this case, the AUC may not be a good choice to evaluate the performance.

@@ -2,6 +2,7 @@
 // No Rcpp, no pybind11, no Eigen. Uses BLAS for hot-path linear algebra.
 #include "huge/huge_core.h"
 #include "huge/blas_config.h"
+#include <atomic>
 #include <cstring>
 #include <stdexcept>
 
@@ -231,7 +232,10 @@ static void glasso_sub(Matrix& S, Matrix& W, Matrix& T, int d,
 static double spd_log_det_colmajor(const Matrix& m) {
     const int n = m.rows;
     if (n <= 0 || n != m.cols) return -std::numeric_limits<double>::infinity();
-    Matrix L(n, n);
+    // Store the transpose of the lower factor so each inner product reads
+    // contiguous columns instead of stride-n rows. Retain the original
+    // subtraction order and the same scale and positive-pivot checks.
+    Matrix Lt(n, n);
     std::vector<double> inv_scale(n);
     double ldet = 0.0;
     for (int i = 0; i < n; i++) {
@@ -244,28 +248,34 @@ static double spd_log_det_colmajor(const Matrix& m) {
         ldet += std::log(diagonal);
     }
     for (int j = 0; j < n; j++) {
+        const double* factor_j = Lt.col_ptr(j);
         double pivot = 1.0;
-        for (int k = 0; k < j; k++) pivot -= L(j, k) * L(j, k);
+        for (int k = 0; k < j; k++) pivot -= factor_j[k] * factor_j[k];
         if (!(pivot > 0.0) || !std::isfinite(pivot))
             return -std::numeric_limits<double>::infinity();
         double diagonal = std::sqrt(pivot);
-        L(j, j) = diagonal;
+        Lt(j, j) = diagonal;
         ldet += 2.0 * std::log(diagonal);
         for (int i = j + 1; i < n; i++) {
+            double* factor_i = Lt.col_ptr(i);
             double value = m(i, j) * inv_scale[i] * inv_scale[j];
-            for (int k = 0; k < j; k++) value -= L(i, k) * L(j, k);
+            for (int k = 0; k < j; k++) value -= factor_i[k] * factor_j[k];
             value /= diagonal;
             if (!std::isfinite(value))
                 return -std::numeric_limits<double>::infinity();
-            L(i, j) = value;
+            factor_i[j] = value;
         }
     }
     return ldet;
 }
 
+static constexpr double GLASSO_INVERSE_RESIDUAL_TOL = 1e-2;
+static constexpr double GLASSO_REFINEMENT_RESIDUAL_TRIGGER =
+    0.5 * GLASSO_INVERSE_RESIDUAL_TOL;
+
 // Infinity norm of covariance * precision - I. Both matrices are already
 // available even when covariance output is not requested by the caller.
-static double inverse_residual_inf(const Matrix& covariance,
+static double inverse_residual_dense(const Matrix& covariance,
                                    const Matrix& precision) {
     const int n = covariance.rows;
     if (n <= 0 || covariance.cols != n ||
@@ -291,9 +301,81 @@ static double inverse_residual_inf(const Matrix& covariance,
     return residual;
 }
 
-static constexpr double GLASSO_INVERSE_RESIDUAL_TOL = 1e-2;
-static constexpr double GLASSO_REFINEMENT_RESIDUAL_TRIGGER =
-    0.5 * GLASSO_INVERSE_RESIDUAL_TOL;
+// Use sparse column accumulation only for large, genuinely sparse estimates.
+// Near a public certification threshold, retain the original GEMM decision.
+static double inverse_residual_inf(const Matrix& covariance,
+                                   const Matrix& precision) {
+    const int n = covariance.rows;
+
+    if (n < 512 || covariance.cols != n || precision.rows != n ||
+            precision.cols != n)
+        return inverse_residual_dense(covariance, precision);
+    const size_t elements = static_cast<size_t>(n) * n;
+    const size_t maximum_nonzero = elements / 32;
+    size_t nonzero = 0;
+    double max_precision = 0.0;
+    for (double value : precision.v) {
+        if (!std::isfinite(value))
+            return inverse_residual_dense(covariance, precision);
+        if (value != 0.0 && ++nonzero > maximum_nonzero)
+            return inverse_residual_dense(covariance, precision);
+        max_precision = std::max(max_precision, std::fabs(value));
+    }
+    double max_covariance = 0.0;
+    for (double value : covariance.v) {
+        if (!std::isfinite(value))
+            return inverse_residual_dense(covariance, precision);
+        max_covariance = std::max(max_covariance, std::fabs(value));
+    }
+    const double max_product = max_covariance * max_precision;
+    const double absolute_dot_bound = n * max_product;
+    const double scaled_epsilon = n * std::numeric_limits<double>::epsilon();
+    const double gamma = scaled_epsilon / (1.0 - scaled_epsilon);
+    // Bound differences between the sparse and dense dot products, then
+    // accumulate over a row. The factor 16 leaves rounding margin for both
+    // products, subtracting I and the row sums; +1 also covers subnormal noise.
+    const double error_bound = 16.0 * gamma * n * (absolute_dot_bound + 1.0);
+    // Normal global bounds avoid underflow; the last check reserves a factor
+    // two below overflow for every absolute row sum in either evaluation.
+    if (!std::isnormal(max_product) || !std::isnormal(absolute_dot_bound) ||
+            !std::isnormal(error_bound) ||
+            absolute_dot_bound > std::numeric_limits<double>::max() / (2.0 * n))
+        return inverse_residual_dense(covariance, precision);
+
+    std::vector<double> column(n, 0.0), row_sums(n, 0.0);
+    for (int j = 0; j < n; ++j) {
+        std::fill(column.begin(), column.end(), 0.0);
+        const double* coefficients = precision.col_ptr(j);
+        for (int k = 0; k < n; ++k) {
+            const double coefficient = coefficients[k];
+            if (coefficient != 0.0) {
+                const double* covariance_column = covariance.col_ptr(k);
+                for (int r = 0; r < n; ++r)
+                    column[r] += coefficient * covariance_column[r];
+            }
+        }
+        for (int r = 0; r < n; ++r) {
+            double value = column[r] - (r == j ? 1.0 : 0.0);
+            if (!std::isfinite(value)) {
+                return inverse_residual_dense(covariance, precision);
+            }
+            row_sums[r] += std::fabs(value);
+        }
+    }
+    double residual = 0.0;
+    for (double value : row_sums) {
+        if (!std::isfinite(value)) {
+            return inverse_residual_dense(covariance, precision);
+        }
+        residual = std::max(residual, value);
+    }
+    if (std::fabs(residual - GLASSO_REFINEMENT_RESIDUAL_TRIGGER) <= error_bound ||
+            std::fabs(residual - GLASSO_INVERSE_RESIDUAL_TOL) <= error_bound) {
+        return inverse_residual_dense(covariance, precision);
+    }
+
+    return residual;
+}
 
 // trace(A*B) = sum_k dot(A[:,k], B[k,:]).  B is symmetric here (sub_S), so
 // B[k,:] == B[:,k] and both dot operands are contiguous columns — bitwise
@@ -651,7 +733,29 @@ static inline double mb_partial_residual(const double* S_data, int d, int m,
 static void mb_refine_active(const double* S_data, int d, int m,
                              double ilambda, double thol, int max_iter,
                              const int* idx_a, int size_a,
-                             double* w0, double* w1) {
+                             double* w0, double* w1,
+                             std::vector<double>& active_gram,
+                             std::vector<double>& active_coef) {
+    if (size_a == 0) return;
+
+    // Repeated sweeps benefit from contiguous Gram rows and coefficients.
+    // Bound the per-worker cache to 512 KiB plus 2 KiB for coefficients;
+    // tiny active sets and sets beyond the cap use the original gather loop.
+    // Both paths retain the active-coordinate and summation order.
+    const bool packed = size_a >= 16 && size_a <= 256;
+    if (packed) {
+        // Reserve the cap once so vector growth cannot exceed the budget.
+        active_gram.reserve(256 * 256);
+        active_coef.reserve(256);
+        active_gram.resize(static_cast<size_t>(size_a) * size_a);
+        active_coef.resize(size_a);
+        for (int j = 0; j < size_a; j++) {
+            active_coef[j] = w0[idx_a[j]];
+            double* row = active_gram.data() + static_cast<size_t>(j) * size_a;
+            for (int k = 0; k < size_a; k++)
+                row[k] = cm(S_data, d, idx_a[j], idx_a[k]);
+        }
+    }
     double gap_int = 1;
     int iter_int = 0;
     while (gap_int > thol && iter_int < max_iter) {
@@ -659,13 +763,20 @@ static void mb_refine_active(const double* S_data, int d, int m,
         for (int j = 0; j < size_a; j++) {
             int w_idx = idx_a[j];
             double r = cm(S_data, d, m, w_idx) + w0[w_idx];
-            for (int k = 0; k < size_a; k++)
-                r -= cm(S_data, d, w_idx, idx_a[k]) * w0[idx_a[k]];
+            if (packed) {
+                const double* row = active_gram.data() + static_cast<size_t>(j) * size_a;
+                for (int k = 0; k < size_a; k++)
+                    r -= row[k] * active_coef[k];
+            } else {
+                for (int k = 0; k < size_a; k++)
+                    r -= cm(S_data, d, w_idx, idx_a[k]) * w0[idx_a[k]];
+            }
 
             w1[w_idx] = threshold_l1(r, ilambda);
             coef_sum += std::fabs(w1[w_idx]);
             change_sum += std::fabs(w1[w_idx] - w0[w_idx]);
             w0[w_idx] = w1[w_idx];
+            if (packed) active_coef[j] = w1[w_idx];
         }
         gap_int = (coef_sum > 0) ? change_sum / coef_sum : 0;
         iter_int++;
@@ -703,6 +814,7 @@ MBResult mb(const double* S_data, int d,
     std::vector<unsigned char> strong(d, 0);
     std::vector<double> grad_abs(d, 0.0);
     std::vector<int> sort_scratch;
+    std::vector<double> active_gram, active_coef;
 
     #ifdef _OPENMP
     #pragma omp for schedule(dynamic)
@@ -751,7 +863,8 @@ MBResult mb(const double* S_data, int d,
                 gap_ext = size_a - size_a_prev;
 
                 mb_refine_active(S_data, d, m, ilambda, thol, MAX_ITER,
-                                 idx_a.data(), size_a, w0.data(), w1.data());
+                                 idx_a.data(), size_a, w0.data(), w1.data(),
+                                 active_gram, active_coef);
                 int junk_a = 0;
                 for (int j = 0; j < size_a; j++) {
                     int w_idx = idx_a[j];
@@ -856,6 +969,7 @@ MBResult mb_scr(const double* S_data, int d,
     std::vector<double> w0(d, 0.0), w1(d, 0.0);
     std::vector<int> idx_a(nscr), idx_i_local(nscr);
     std::vector<int> sort_scratch;
+    std::vector<double> active_gram, active_coef;
 
     #ifdef _OPENMP
     #pragma omp for schedule(dynamic)
@@ -893,7 +1007,8 @@ MBResult mb_scr(const double* S_data, int d,
                 gap_ext = size_a - size_a_prev;
 
                 mb_refine_active(S_data, d, m, ilambda, thol, MAX_ITER,
-                                 idx_a.data(), size_a, w0.data(), w1.data());
+                                 idx_a.data(), size_a, w0.data(), w1.data(),
+                                 active_gram, active_coef);
                 iter_ext++;
             }
             if (gap_ext > 0 && iter_ext >= MAX_ITER) hit_any_max_iter = true;
@@ -1226,20 +1341,25 @@ static bool correlation_is_positive_semidefinite(const Matrix& corr)
 
     // Cholesky of corr + tolerance * I accepts singular PSD input while
     // rejecting negative eigenvalues beyond floating-point roundoff.
-    Matrix lower(d, d);
+    // Transpose factor storage, as in the glasso log-determinant check, to
+    // make inner products contiguous without changing the loop order.
+    Matrix lower_transpose(d, d);
     for (int j = 0; j < d; j++) {
+        const double* factor_j = lower_transpose.col_ptr(j);
         double pivot = corr(j, j) + tolerance;
-        for (int k = 0; k < j; k++) pivot -= lower(j, k) * lower(j, k);
+        for (int k = 0; k < j; k++) pivot -= factor_j[k] * factor_j[k];
         if (!(pivot > 0.0) || !std::isfinite(pivot)) return false;
-        lower(j, j) = std::sqrt(pivot);
+        const double diagonal = std::sqrt(pivot);
+        lower_transpose(j, j) = diagonal;
 
         for (int i = j + 1; i < d; i++) {
+            double* factor_i = lower_transpose.col_ptr(i);
             double value = corr(i, j);
             for (int k = 0; k < j; k++)
-                value -= lower(i, k) * lower(j, k);
-            value /= lower(j, j);
+                value -= factor_i[k] * factor_j[k];
+            value /= diagonal;
             if (!std::isfinite(value)) return false;
-            lower(i, j) = value;
+            factor_i[j] = value;
         }
     }
     return true;
@@ -1542,8 +1662,16 @@ static TigerResult tiger_from_correlation(const Matrix& corr,
     res.lambda = std::move(lambda);
     res.columns.resize(d);
     res.icov.resize(nlambda);
-    for (int i = 0; i < nlambda; i++) res.icov[i].resize(d, d);
+    // Keep only scalar scaling factors until the common certified prefix is
+    // known; the nonzero coefficients are already retained in columns.
+    std::vector<double> inverse_variances(static_cast<size_t>(d) * nlambda);
     std::vector<int> valid_prefix(d, nlambda);
+    // A failed point cannot belong to the common certified prefix. Workers
+    // still solve every earlier point, so an earlier failure remains visible;
+    // only work on a suffix that would be discarded can be skipped. This
+    // atomic publishes a bound, not coefficient data, so relaxed ordering is
+    // sufficient. Each node retains its own coefficients and valid count.
+    std::atomic<int> shared_prefix(nlambda);
 
     #ifdef _OPENMP
     #pragma omp parallel
@@ -1567,7 +1695,7 @@ static TigerResult tiger_from_correlation(const Matrix& corr,
         is_active[m] = 1;
         double tau = std::sqrt(std::max(corr(m, m), tau_floor * tau_floor));
 
-        for (int i = 0; i < nlambda; i++) {
+        for (int i = 0; i < shared_prefix.load(std::memory_order_relaxed); i++) {
             bool outer_converged = false;
             bool numerically_degenerate = false;
             for (int outer = 0; outer < max_outer; outer++) {
@@ -1611,7 +1739,13 @@ static TigerResult tiger_from_correlation(const Matrix& corr,
             bool certified = outer_converged && !numerically_degenerate &&
                 tiger_kkt_certified(corr, m, res.lambda[i], tau, beta,
                                     residual_gradient);
-            if (!certified) break;
+            if (!certified) {
+                int previous = shared_prefix.load(std::memory_order_relaxed);
+                while (i < previous && !shared_prefix.compare_exchange_weak(
+                        previous, i, std::memory_order_relaxed,
+                        std::memory_order_relaxed)) {}
+                break;
+            }
 
             nonzero.clear();
             for (int j = 0; j < d; j++)
@@ -1619,11 +1753,8 @@ static TigerResult tiger_from_correlation(const Matrix& corr,
             collect_sorted(res.columns[m], i, d, beta.data(), nonzero.data(),
                            static_cast<int>(nonzero.size()), sort_scratch);
 
-            Matrix& icov = res.icov[i];
             double inverse_variance = 1.0 / (tau * tau);
-            icov(m, m) = inverse_variance;
-            for (int j = 0; j < d; j++)
-                if (j != m) icov(j, m) = -inverse_variance * beta[j];
+            inverse_variances[static_cast<size_t>(m) * nlambda + i] = inverse_variance;
             certified_count = i + 1;
         }
         valid_prefix[m] = certified_count;
@@ -1655,6 +1786,26 @@ static TigerResult tiger_from_correlation(const Matrix& corr,
             size_t keep = static_cast<size_t>(first_suffix - col.indices.begin());
             col.indices.resize(keep);
             col.vals.resize(keep);
+        }
+    }
+
+    // An omitted beta is +0: thresholding uses a unit correlation diagonal.
+    // Its original precision entry is -0, which must survive reconstruction.
+    // Fill once with that sign rather than zero-filling then overwriting zeros.
+    for (Matrix& icov : res.icov) {
+        icov.rows = d;
+        icov.cols = d;
+        icov.v.assign(static_cast<size_t>(d) * d, -0.0);
+    }
+    for (int m = 0; m < d; m++) {
+        const double* inverse = inverse_variances.data() + static_cast<size_t>(m) * nlambda;
+        for (int i = 0; i < certified_nlambda; i++)
+            res.icov[i](m, m) = inverse[i];
+        const ColResult& column = res.columns[m];
+        for (size_t entry = 0; entry < column.indices.size(); entry++) {
+            int i = column.indices[entry] / d;
+            int j = column.indices[entry] % d;
+            res.icov[i](j, m) = -inverse[i] * column.vals[entry];
         }
     }
 
@@ -1706,27 +1857,54 @@ double ric(const double* X_data, int n, int d, const int* r, int t)
     // inner product may come back as a tiny nonzero value whose magnitude
     // differs between implementations (this is exactly what ATLAS does on
     // rank-deficient input).  Any |C[j,k]| within the pair's bound is
-    // therefore indistinguishable from zero and is certified to zero, which
-    // makes the selected lambda reproducible across BLAS implementations.
-    // The bound is pair-specific and scale-aware: it never erases a
-    // correlation that the working precision can actually represent.
+    // therefore indistinguishable from zero under this pair-specific bound
+    // and is certified to zero. Values near the bound can still classify
+    // differently across BLAS implementations and summation orders.
     const double eps = std::numeric_limits<double>::epsilon();
     const double scaled_eps = static_cast<double>(n) * eps;
     const double dot_gamma = scaled_eps < 1.0
         ? scaled_eps / (1.0 - scaled_eps)
         : std::numeric_limits<double>::infinity();
 
+    constexpr int block_columns = 128;
+    double ambiguity_threshold = std::numeric_limits<double>::infinity();
+    if (d > block_columns) {
+        // Panel shapes can select a different BLAS summation order. Preserve
+        // the original full-GEMM decision when an entire rotation is near
+        // its rounding bound. Do not derive this guard from col_norm: a
+        // squared column norm can underflow even when cross-products do not.
+        double maximum_entry = 0.0;
+        for (size_t q = 0; q < static_cast<size_t>(n) * d; ++q) {
+            const double value = std::fabs(X_data[q]);
+            if (!std::isfinite(value)) { maximum_entry = value; break; }
+            maximum_entry = std::max(maximum_entry, value);
+        }
+        const double maximum_square = maximum_entry * maximum_entry;
+        const double absolute_sum_bound = (2.0 * n) * maximum_square;
+        const double error_bound = dot_gamma * absolute_sum_bound;
+        // Twice n*M^2 bounds every absolute dot sum with rounding margin.
+        // The extra factor eight covers both GEMM error intervals and the
+        // original norm-based cutoff. With normal intermediates it also
+        // dominates cumulative subnormal rounding for an int-sized n.
+        // Otherwise use the old full shape directly, including overflow.
+        if (std::isnormal(maximum_square) && std::isnormal(absolute_sum_bound) &&
+                std::isnormal(error_bound)) {
+            ambiguity_threshold = std::nextafter(8.0 * error_bound,
+                std::numeric_limits<double>::infinity());
+        }
+    }
+    const bool use_blocks = std::isfinite(ambiguity_threshold);
     double lambda_min = std::numeric_limits<double>::infinity();
 
     #ifdef _OPENMP
-    // Each worker owns a d x d scratch matrix.  Never start more workers than
-    // rotations, or idle workers can dominate RIC's peak memory.
+    // Never allocate scratch for more workers than there are rotations.
     const int worker_count = std::min(t, omp_get_max_threads());
     #pragma omp parallel num_threads(worker_count)
     {
     #endif
-    // Per-thread d x d buffer for the rotated cross-product C = Xrot^T * X
-    std::vector<double> C(static_cast<size_t>(d) * d);
+    // Typical large problems use d-by-128 scratch per worker. An ambiguous
+    // rotation can expand it to d-by-d; the worst-case memory is unchanged.
+    std::vector<double> C(static_cast<size_t>(d) * (use_blocks ? block_columns : d));
 
     #ifdef _OPENMP
     #pragma omp for schedule(dynamic) reduction(min:lambda_min)
@@ -1737,28 +1915,55 @@ double ric(const double* X_data, int n, int d, const int* r, int t)
         if (tmp_r > n) tmp_r = n;
         int split = n - tmp_r;
 
-        // Row-rotating X by tmp_r makes C[j,k] = dot(X[(.+tmp_r) mod n, j], X[., k]),
-        // which splits into two contiguous row-block products:
-        //   C = X[tmp_r:n, :]^T * X[0:split, :]  +  X[0:tmp_r, :]^T * X[split:n, :]
-        // When split == 0 the first GEMM has k = 0 and beta = 0, which zeroes C.
-        dgemm_(&BLAS_T, &BLAS_N, &d, &d, &split, &BLAS_ONE,
-               X_data + tmp_r, &n, X_data, &n, &BLAS_ZERO, C.data(), &d);
-        dgemm_(&BLAS_T, &BLAS_N, &d, &d, &tmp_r, &BLAS_ONE,
-               X_data, &n, X_data + split, &n, &BLAS_ONE, C.data(), &d);
-
-        // Max |C[j,k]| over strictly upper-triangular pairs (j < k), matching
-        // the pair set of the original scalar loops.  Splitting the rotation
-        // into two GEMMs adds one rounding of the two partial sums, so allow
-        // one extra eps on top of the dot-product bound.
         double lambda_max = 0;
-        for (int k = 1; k < d; k++) {
-            const double* col = C.data() + static_cast<size_t>(k) * d;
-            for (int j = 0; j < k; j++) {
-                double tmp = std::fabs(col[j]);
-                double bound = dot_gamma * col_norm[j] * col_norm[k];
-                bound += eps * bound + eps * tmp;
-                if (tmp <= bound) continue;
-                if (tmp > lambda_max) lambda_max = tmp;
+        for (int start = 1; use_blocks && start < d;) {
+            const int columns = std::min(block_columns, d - start);
+            const int rows = start + columns - 1;
+            const double* target = X_data + static_cast<size_t>(start) * n;
+            // Only the row prefix containing j < k is needed for this panel.
+            // The two products split the cyclic rotation into contiguous rows.
+            dgemm_(&BLAS_T, &BLAS_N, &rows, &columns, &split, &BLAS_ONE,
+                   X_data + tmp_r, &n, target, &n, &BLAS_ZERO, C.data(), &rows);
+            dgemm_(&BLAS_T, &BLAS_N, &rows, &columns, &tmp_r, &BLAS_ONE,
+                   X_data, &n, target + split, &n, &BLAS_ONE, C.data(), &rows);
+            for (int column = 0; column < columns; ++column) {
+                const int k = start + column;
+                const double* col = C.data() + static_cast<size_t>(column) * rows;
+                for (int j = 0; j < k; ++j) {
+                    double tmp = std::fabs(col[j]);
+                    double bound = dot_gamma * col_norm[j] * col_norm[k];
+                    bound += eps * bound + eps * tmp;
+                    if (tmp <= bound) continue;
+                    if (tmp > lambda_max) lambda_max = tmp;
+                }
+            }
+            start += columns;
+        }
+        if (!use_blocks || !std::isfinite(lambda_max) || lambda_max <= ambiguity_threshold) {
+            // Keep the original GEMM shapes and pair cutoff in the numerical
+            // ambiguity band on this BLAS. Discard panel storage before growing
+            // it, then reuse the full buffer for subsequent rotations.
+            const size_t full_size = static_cast<size_t>(d) * d;
+            if (C.size() < full_size) {
+                std::vector<double>().swap(C);
+                C.resize(full_size);
+            }
+            // Rotation endpoints are intentional: a k=0, beta=0 first GEMM
+            // zeroes C before the second product when tmp_r == n.
+            dgemm_(&BLAS_T, &BLAS_N, &d, &d, &split, &BLAS_ONE,
+                   X_data + tmp_r, &n, X_data, &n, &BLAS_ZERO, C.data(), &d);
+            dgemm_(&BLAS_T, &BLAS_N, &d, &d, &tmp_r, &BLAS_ONE,
+                   X_data, &n, X_data + split, &n, &BLAS_ONE, C.data(), &d);
+            lambda_max = 0.0;
+            for (int k = 1; k < d; ++k) {
+                const double* col = C.data() + static_cast<size_t>(k) * d;
+                for (int j = 0; j < k; ++j) {
+                    double tmp = std::fabs(col[j]);
+                    double bound = dot_gamma * col_norm[j] * col_norm[k];
+                    bound += eps * bound + eps * tmp;
+                    if (tmp <= bound) continue;
+                    if (tmp > lambda_max) lambda_max = tmp;
+                }
             }
         }
         if (lambda_max < lambda_min) lambda_min = lambda_max;

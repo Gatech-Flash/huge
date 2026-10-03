@@ -60,13 +60,16 @@ test_that("mb handles single-variable raw and covariance inputs", {
   expect_identical(fits$raw_explicit$lambda, fits$covariance_explicit$lambda)
 })
 
-test_that("mb sparsity is non-decreasing", {
+test_that("mb lambda decreases and sparsity matches the returned graphs", {
   set.seed(21)
   L <- huge.generator(n = 80, d = 30, graph = "hub", verbose = FALSE)
   fit <- huge(L$data, method = "mb", verbose = FALSE)
 
   expect_true(all(diff(fit$lambda) < 0))
-  expect_true(all(diff(fit$sparsity) >= -1e-10))
+  d <- ncol(L$data)
+  expected <- vapply(fit$path, function(path)
+    Matrix::nnzero(path) / (d * (d - 1)), numeric(1))
+  expect_equal(fit$sparsity, expected, tolerance = 1e-12)
 })
 
 test_that("mb path matrices are symmetric and binary", {
@@ -88,7 +91,8 @@ test_that("mb with scr=TRUE works", {
   fit <- huge(L$data, method = "mb", scr = TRUE, verbose = FALSE)
 
   expect_s3_class(fit, "huge")
-  expect_true(all(diff(fit$sparsity) >= -1e-10))
+  expect_true(all(is.finite(fit$sparsity)))
+  expect_true(all(fit$sparsity >= 0 & fit$sparsity <= 1))
 })
 
 test_that("mb sym='and' gives sparser graphs than sym='or'", {
@@ -109,8 +113,9 @@ test_that("mb works across graph types", {
   for (g in c("hub", "band", "cluster", "random")) {
     L <- huge.generator(n = 60, d = 20, graph = g, verbose = FALSE)
     fit <- huge(L$data, method = "mb", verbose = FALSE)
-    expect_true(all(diff(fit$sparsity) >= -1e-10),
-                info = paste("non-monotone sparsity for graph =", g))
+    expected <- vapply(fit$beta, function(beta)
+      as.numeric(Matrix::colSums(beta != 0)), numeric(ncol(L$data)))
+    expect_equal(fit$df, expected, info = paste("graph =", g))
   }
 })
 

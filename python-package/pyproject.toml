@@ -1,10 +1,17 @@
 [build-system]
-requires = ["setuptools>=77", "wheel", "pybind11>=2.11", "numpy>=1.23"]
+requires = [
+  "setuptools>=77",
+  "wheel",
+  "pybind11>=2.12; python_version < '3.13'",
+  "pybind11>=2.13; python_version == '3.13'",
+  "pybind11>=3.0; python_version >= '3.14'",
+  "numpy>=1.23",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyhuge"
-version = "2.0.1"
+version = "2.0.2"
 description = "Native Python package for high-dimensional undirected graph estimation"
 readme = "README.md"
 requires-python = ">=3.9"

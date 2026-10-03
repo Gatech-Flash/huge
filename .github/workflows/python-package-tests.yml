@@ -1,15 +1,28 @@
 name: python-package-tests
 
 on:
+  workflow_call:
   push:
     paths:
       - "python-package/**"
+      - "src/**"
+      - "R/**"
+      - "tests/**"
+      - "DESCRIPTION"
+      - "NAMESPACE"
+      - "configure*"
       - "tools/**"
       - ".github/workflows/python-package-tests.yml"
       - ".github/workflows/python-package-release.yml"
   pull_request:
     paths:
       - "python-package/**"
+      - "src/**"
+      - "R/**"
+      - "tests/**"
+      - "DESCRIPTION"
+      - "NAMESPACE"
+      - "configure*"
       - "tools/**"
       - ".github/workflows/python-package-tests.yml"
       - ".github/workflows/python-package-release.yml"
@@ -40,35 +53,71 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e "./python-package[test,viz,runtime]"
-      - name: Run unit tests
+      - name: Run full non-R suite
         run: |
           cd python-package
-          pytest tests/test_public_api.py tests/test_core_unit.py \
-            tests/test_runtime_errors.py tests/test_native_smoke.py \
-            tests/test_native_symbols.py tests/test_packaging_contract.py \
-            tests/test_cmake_contract.py tests/test_r_build_contract.py
+          python -m pytest -ra --ignore=tests/test_native_vs_r_parity.py \
+            --ignore=tests/test_strict_r_parity.py \
+            --ignore=tests/test_streaming_r_parity.py
 
   minimum-dependencies:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.9"
+            pybind11: "2.12.0"
+            numpy: "1.23.0"
+            scipy: "1.9.0"
+          - python-version: "3.9"
+            pybind11: "2.12.0"
+            numpy: "1.23.5"
+            scipy: "1.9.3"
+          - python-version: "3.12"
+            pybind11: "2.12.0"
+            numpy: "2.0.2"
+            scipy: "1.13.1"
+          - python-version: "3.13"
+            pybind11: "2.13.0"
+            numpy: "2.1.0"
+            scipy: "1.14.1"
+          - python-version: "3.14"
+            pybind11: "3.0.0"
+            numpy: "2.3.3"
+            scipy: "1.16.2"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python-version }}
       - name: Install system BLAS
         run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
       - name: Install declared minimum dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "setuptools>=77" wheel "pybind11>=2.11" "numpy==1.23.5" "scipy==1.9.3" "pytest>=7.4,<9"
+          pip install "setuptools>=77" wheel "pybind11==${{ matrix.pybind11 }}" \
+            "numpy==${{ matrix.numpy }}" "scipy==${{ matrix.scipy }}" "pytest>=7.4,<9"
           pip install --no-build-isolation --no-deps -e ./python-package
-      - name: Run minimum-dependency contract tests
+      - name: Verify exact build and runtime dependency versions
+        env:
+          EXPECTED_PYBIND11: ${{ matrix.pybind11 }}
+          EXPECTED_NUMPY: ${{ matrix.numpy }}
+          EXPECTED_SCIPY: ${{ matrix.scipy }}
+        run: |
+          python - <<'PY'
+          import os
+          import numpy, scipy, pybind11
+
+          for module in (numpy, scipy, pybind11):
+              expected = os.environ["EXPECTED_" + module.__name__.upper()]
+              assert module.__version__ == expected, (module.__name__, module.__version__, expected)
+          PY
+      - name: Run full non-R suite with minimum dependencies
         run: |
           cd python-package
-          pytest tests/test_public_api.py tests/test_core_unit.py \
-            tests/test_runtime_errors.py tests/test_native_smoke.py \
-            tests/test_native_symbols.py tests/test_packaging_contract.py \
-            tests/test_cmake_contract.py tests/test_r_build_contract.py
+          python -m pytest -ra --ignore=tests/test_native_vs_r_parity.py \
+            --ignore=tests/test_strict_r_parity.py \
+            --ignore=tests/test_streaming_r_parity.py
 
   e2e-native:
     runs-on: ubuntu-latest
@@ -120,3 +169,29 @@ jobs:
         run: |
           cd python-package
           pytest -q -rA
+
+  binding-sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Clang runtime and BLAS
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-rt-dev libopenblas-dev
+      - name: Install binding test dependencies
+        run: python -m pip install "setuptools>=77" wheel "pybind11>=2.12" numpy scipy "pytest>=7.4"
+      - name: Instrument and check Python binding ownership
+        env:
+          CC: clang
+          CXX: clang++
+          PYTHON: python
+          HUGE_PYTHON_SANITIZER_OUTPUT: ${{ runner.temp }}/python-binding-sanitizers
+        run: sh tools/check_python_binding_sanitizers.sh
+      - name: Retain sanitizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-binding-sanitizers
+          path: ${{ runner.temp }}/python-binding-sanitizers
