@@ -17,7 +17,8 @@ installed_refs <- function(pkgs) {
 }
 resolver_roots <- function(refs, shared, baseline) {
     sys <- installed.packages(lib.loc = .Library)
-    rec <- sys[sys[, "Priority"] %in% c("base", "recommended"), , drop = FALSE]
+    base_names <- sys[sys[, "Priority"] %in% "base", "Package"]
+    rec <- sys[sys[, "Priority"] %in% "recommended", , drop = FALSE]
     fields <- c("Package", "Version", "LibPath")
     fixed <- rbind(installed.packages(lib.loc = shared)[, fields, drop = FALSE],
                    rec[, fields, drop = FALSE])
@@ -27,7 +28,8 @@ resolver_roots <- function(refs, shared, baseline) {
         huge <- huge[huge[, "Package"] == "huge", , drop = FALSE]
         fixed <- rbind(fixed, huge[, fields, drop = FALSE])
     }
-    roots <- refs[!refs %in% fixed[, "Package"]]
+    # Base packages are supplied by R; pak cannot resolve them as installed roots.
+    roots <- refs[!refs %in% c(fixed[, "Package"], base_names)]
     unique(c(roots, installed_refs(fixed)))
 }
 if (phase == "core") {
