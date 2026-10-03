@@ -810,7 +810,7 @@ def analyze(output, results, plan):
                       "bootstrap_replicates": 10000, "bootstrap_seed": seed,
                       "median_cpu_ratio": statistics.median(group["cpu_ratios"]),
                       "median_call_difference_seconds": statistics.median(group["differences_seconds"]),
-                      "candidate_slower_pairs": sum(value > 1 for value in values)}
+                      "candidate_slower_pairs": int(sum(value > 1 for value in values))}
             summary["by_workload_class"][work_class] = detail
         if len(groups) == 1:
             summary["workload_class"] = next(iter(groups))

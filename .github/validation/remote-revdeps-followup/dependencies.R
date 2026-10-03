@@ -18,12 +18,14 @@ installed_refs <- function(pkgs) {
 resolver_roots <- function(refs, shared, baseline) {
     sys <- installed.packages(lib.loc = .Library)
     rec <- sys[sys[, "Priority"] %in% c("base", "recommended"), , drop = FALSE]
-    fixed <- rbind(installed.packages(lib.loc = shared), rec)
+    fields <- c("Package", "Version", "LibPath")
+    fixed <- rbind(installed.packages(lib.loc = shared)[, fields, drop = FALSE],
+                   rec[, fields, drop = FALSE])
     fixed <- fixed[!duplicated(fixed[, "Package"]), , drop = FALSE]
     if (nzchar(baseline)) {
         huge <- installed.packages(lib.loc = baseline)
         huge <- huge[huge[, "Package"] == "huge", , drop = FALSE]
-        fixed <- rbind(fixed, huge)
+        fixed <- rbind(fixed, huge[, fields, drop = FALSE])
     }
     roots <- refs[!refs %in% fixed[, "Package"]]
     unique(c(roots, installed_refs(fixed)))

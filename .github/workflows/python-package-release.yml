@@ -11,7 +11,7 @@ on:
         type: choice
         required: true
         default: full
-        options: [full, windows, reverse]
+        options: [full, windows, reverse, perf4]
 
 jobs:
   validate-version:
@@ -671,3 +671,30 @@ jobs:
           path: ${{ runner.temp }}/huge-paired-reverse-dependencies-followup/evidence/
           if-no-files-found: error
           retention-days: 14
+
+  validation-linux-performance-omp4-followup:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'perf4' }}
+    name: Actual Linux OpenBLAS and OpenMP four-thread follow-up
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      HUGE_AUDIT_THREAD_COUNTS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install LP64 OpenBLAS and GNU native toolchain
+        run: sudo apt-get update -y && sudo apt-get install -y libopenblas-dev gcc g++
+      - name: Install exact comparison build and runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==2.5.3 scipy==1.18.1 pybind11==3.1.0 setuptools==84.0.0 wheel==0.48.0
+      - name: Compare pinned upstream and current public workflows on real Linux
+        run: python tools/remote-performance/remote-performance.py
+      - name: Retain all performance inputs, identity checks, failures, and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-linux-performance-omp4-followup
+          path: ${{ runner.temp }}/huge-performance-audit/results

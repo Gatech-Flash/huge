@@ -19,6 +19,8 @@ WORK.mkdir(exist_ok=False)
 RESULTS = WORK / 'results'
 RESULTS.mkdir()
 assert sys.platform.startswith('linux')
+thread_counts = tuple(map(int, os.environ.get('HUGE_AUDIT_THREAD_COUNTS', '1,4').split(',')))
+assert thread_counts in ((1,), (4,), (1, 4)), thread_counts
 env = os.environ.copy()
 env.update(OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', OMP_DYNAMIC='FALSE',
            MKL_NUM_THREADS='1', BLIS_NUM_THREADS='1', NUMEXPR_NUM_THREADS='1',
@@ -119,7 +121,7 @@ utility_dir = RESULTS / 'audit-utilities'
 shutil.copytree(HERE, utility_dir, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 run(['ldd', env['HUGE_AUDIT_TEAM_PROBE']], 'linkage-team-probe.log')
 shutil.copyfile(env['HUGE_AUDIT_TEAM_PROBE'], RESULTS / 'binaries' / 'omp-team.so')
-for threads in (1, 4):
+for threads in thread_counts:
     runtime = env.copy()
     runtime['HUGE_AUDIT_OMP_THREADS'] = str(threads)
     run([sys.executable, str(HERE / 'python-compare.py'), 'selftest'],
@@ -134,6 +136,6 @@ for threads in (1, 4):
     assert all(case['eligible_pairs'] == 5 for case in summary['cases']), summary
 (RESULTS / 'completed.json').write_text(json.dumps({
     'completed': True, 'platform': 'actual Linux', 'baseline_commit': BASE,
-    'thread_counts': [1, 4], 'BLAS': 'native extension LP64 OpenBLAS verified per worker; separate NumPy/SciPy providers recorded',
+    'thread_counts': list(thread_counts), 'BLAS': 'native extension LP64 OpenBLAS verified per worker; separate NumPy/SciPy providers recorded',
     'performance_scope': 'Paired public APIs/workflows; not universal acceleration'}, indent=2) + '\n')
 print(json.dumps({'completed': True, 'results': str(RESULTS)}))
