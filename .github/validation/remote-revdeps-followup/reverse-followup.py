@@ -4,6 +4,7 @@ import csv
 from datetime import datetime, timezone
 import gzip
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -263,6 +264,60 @@ def inventory(lib):
             if p.is_file() and (p.name == "DESCRIPTION" or p.suffix in (".so", ".dll"))}
 
 
+def compatible_archive(original, destination):
+    """One explicit archived-dependency ABI variant; preserve the official tar."""
+    original, destination = Path(original), Path(destination)
+    if original.resolve() == destination.resolve():
+        raise ValueError("Compatibility archive must not overwrite official archive")
+    if sha(original) != "8757054042503a5fa1760d6a70a130b29d591233b7509c9c68e0ff30c456a7c1":
+        raise ValueError("Compatibility input must be the pinned official networkTomography0.3")
+    source = "networkTomography/src/ipfp.c"
+    checksum = "networkTomography/MD5"
+    before = b"&REAL(xx)[0], &incx, &beta, errVec, &incx);"
+    after = b"&REAL(xx)[0], &incx, &beta, errVec, &incx FCONE);"
+    with tarfile.open(original) as archive:
+        members = archive.getmembers()
+        if len({m.name for m in members}) != len(members):
+            raise ValueError("Duplicate archived member")
+        contents = {m.name: archive.extractfile(m).read() for m in members if m.isfile()}
+    if hashlib.sha256(contents[source]).hexdigest() != "5b696c6abb9950e2c3898c787b0ce51ffd97253d909e16836de762ef7e4fc91e" or contents[source].count(before) != 1:
+        raise ValueError("Compatibility call-site identity mismatch")
+    changed = dict(contents)
+    changed[source] = contents[source].replace(before, after)
+    if hashlib.sha256(changed[source]).hexdigest() != "b057ff72be635f8183d53a1d8a0ac8040eea22d42b1a5eaf0c6b612493539636":
+        raise ValueError("Compatibility patched source identity mismatch")
+    old_md5 = b"7ecbb322265b8d78a975874160170093 *src/ipfp.c"
+    new_md5 = b"44e93a85d66cd2aacd366eb6e6d63a9e *src/ipfp.c"
+    if contents[checksum].count(old_md5) != 1:
+        raise ValueError("Compatibility checksum identity mismatch")
+    changed[checksum] = contents[checksum].replace(old_md5, new_md5)
+    with destination.open("wb") as stream:
+        with gzip.GzipFile(filename="", fileobj=stream, mode="wb", mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive:
+                for member in members:
+                    if member.isfile():
+                        member.size = len(changed[member.name])
+                        archive.addfile(member, io.BytesIO(changed[member.name]))
+                    else:
+                        archive.addfile(member)
+    with tarfile.open(destination) as archive:
+        actual = {m.name: archive.extractfile(m).read() for m in archive.getmembers() if m.isfile()}
+    if actual != changed or set(actual) != set(contents):
+        raise ValueError("Compatibility archive changed unexpected contents")
+    changed_names = sorted(name for name in contents if contents[name] != actual[name])
+    if changed_names != sorted([source, checksum]):
+        raise ValueError("Compatibility archive must change only ABI argument and its MD5 entry")
+    return {"scope": "Explicit common dependency variant for both huge versions; original strict archived-dependency environment failed and is retained separately",
+            "package": "networkTomography", "version": "0.3", "change": "Append FCONE to one dgemv character argument; update only its packaging MD5 entry",
+            "original_tar": str(original), "original_tar_sha256": sha(original),
+            "patched_tar": str(destination), "patched_tar_sha256": sha(destination),
+            "changed_members": {name: {"original_sha256": hashlib.sha256(contents[name]).hexdigest(), "patched_sha256": hashlib.sha256(actual[name]).hexdigest()} for name in changed_names},
+            "all_patched_file_sha256": {name: hashlib.sha256(value).hexdigest() for name, value in sorted(actual.items())},
+            "unchanged_content_members": len(contents) - 2,
+            "original_strict_environment_passed": False,
+            "same_shared_dependency_for_both_arms": True}
+
+
 def run(args):
     if not sys.platform.startswith("linux"):
         raise RuntimeError("Actual reverse audit requires Linux; use selftest locally")
@@ -326,6 +381,13 @@ def run(args):
             archive_desc = tar_description(path)
             if (archive_desc["Package"], archive_desc["Version"]) != (name, pin["version"]):
                 raise ValueError("Archived optional DESCRIPTION mismatch: " + name)
+            if name == "networkTomography":
+                patched = audit.evidence / "downloads" / "networkTomography_0.3.compat-fcone.tar.gz"
+                compatibility = compatible_archive(path, patched)
+                write(audit.evidence / "archived-dependency-compatibility.json", compatibility)
+                result["archived_dependency_compatibility"] = compatibility
+                result["scope"] += "; explicit common networkTomography FCONE compatibility variant, not the original strict dependency environment"
+                path = patched
             archive_refs[name] = name + "=local::" + str(path)
         write(audit.evidence / "archived-optional-sources.json", archive_pins)
         source = Path(args.source).resolve()
