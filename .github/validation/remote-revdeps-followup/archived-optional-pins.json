@@ -1,0 +1,49 @@
+{
+  "networkTomography": {
+    "version": "0.3",
+    "url": "https://cran.r-project.org/src/contrib/Archive/networkTomography/networkTomography_0.3.tar.gz",
+    "sha256": "8757054042503a5fa1760d6a70a130b29d591233b7509c9c68e0ff30c456a7c1",
+    "bytes": 233672,
+    "description": {
+      "Package": "networkTomography",
+      "Type": "Package",
+      "Title": "Tools for network tomography",
+      "Version": "0.3",
+      "Author": "Alexander W Blocker, Paul Koullick, Edoardo Airoldi",
+      "Maintainer": "Alexander W Blocker <ablocker@gmail.com>",
+      "Description": "networkTomography implements the methods developed and evaluated in Blocker and Airoldi (2011) and Airoldi and Blocker (2012). These include the authors' own dynamic multilevel model with calibration based upon a Gaussian state-space model in addition to implementations of the methods of Tebaldi & West (1998; Poisson-Gamma model with MCMC sampling), Zhang et al. (2002; tomogravity), Cao et al. (2000; Gaussian model with mean-variance relation), and Vardi (1996; method of moments). Data from the 1router network of Cao et al. (2000), the Abilene network of Fang et al. (2007), and the CMU network of Blocker and Airoldi (2011) are included for testing and reproducibility.",
+      "License": "LGPL-2",
+      "LazyLoad": "yes",
+      "URL": "https://github.com/awblocker/networkTomography",
+      "Depends": "R (>= 2.10.0),",
+      "Imports": "coda (>= 0.11-3), igraph (>= 0.5), KFAS (>= 1.0), limSolve (>= 1.4), plyr, Rglpk (>= 0.3),",
+      "Packaged": "2014-01-10 03:50:04 UTC; vagrant",
+      "NeedsCompilation": "yes",
+      "Repository": "CRAN",
+      "Date/Publication": "2014-01-10 07:28:23"
+    }
+  },
+  "pfa": {
+    "version": "1.1",
+    "url": "https://cran.r-project.org/src/contrib/Archive/pfa/pfa_1.1.tar.gz",
+    "sha256": "612c33776a850b3a63a74f8e52a6b51d4303ea21841b536dbad272a4ef696d46",
+    "bytes": 24671,
+    "description": {
+      "Package": "pfa",
+      "Type": "Package",
+      "Title": "Estimates False Discovery Proportion Under Arbitrary Covariance Dependence",
+      "Version": "1.1",
+      "Date": "2016-06-24",
+      "Author": "Jianqing Fan, Tracy Ke, Sydney Li and Lucy Xia",
+      "Maintainer": "Tracy Ke  <zke@galton.uchicago.edu>",
+      "Description": "Estimate the false discovery proportion (FDP) by Principal Factor Approximation method with general known and unknown covariance dependence.",
+      "License": "GPL-2",
+      "Depends": "lars, POET, quantreg",
+      "Suggests": "MASS",
+      "Packaged": "2016-07-03 14:50:54 UTC; Stat-xuhan",
+      "Repository": "CRAN",
+      "Date/Publication": "2016-07-04 09:16:46",
+      "NeedsCompilation": "no"
+    }
+  }
+}

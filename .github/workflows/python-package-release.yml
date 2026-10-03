@@ -11,7 +11,7 @@ on:
         type: choice
         required: true
         default: full
-        options: [full, windows]
+        options: [full, windows, reverse]
 
 jobs:
   validate-version:
@@ -630,3 +630,44 @@ jobs:
           status <- grep("^Status:", readLines(check_logs[[1L]], warn = FALSE), value = TRUE)
           stopifnot(identical(status, "Status: OK"))
           message("Source archive excludes .gitattributes; Windows R check Status: OK")
+
+  validation-r-reverse-followup:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'reverse' }}
+    name: Paired CRAN reverse dependency setup follow-up
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      MAKEFLAGS: "-j1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      BLIS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: false
+      - name: Install R compilation system libraries
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends libopenblas-dev libcurl4-openssl-dev libssl-dev libxml2-dev libgit2-dev libicu-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libpng-dev libtiff-dev libjpeg-dev
+      - name: Check synthetic audit controls
+        run: python -I .github/validation/remote-revdeps-followup/reverse-followup.py selftest
+      - name: Check current direct reverse packages against both huge versions
+        run: |
+          python -I .github/validation/remote-revdeps-followup/reverse-followup.py run \
+            --source "${GITHUB_WORKSPACE}" --output "${RUNNER_TEMP}/huge-paired-reverse-dependencies-followup" \
+            --total-minutes 90 --max-dependencies 350
+      - name: Preserve every baseline, candidate, failure and timeout
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-r-paired-reverse-dependencies-followup
+          path: ${{ runner.temp }}/huge-paired-reverse-dependencies-followup/evidence/
+          if-no-files-found: error
+          retention-days: 14
